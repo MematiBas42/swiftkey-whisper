@@ -50,10 +50,10 @@ public class MainActivity extends AppCompatActivity {
 
     // Standard Prompts
     private static final String PROMPT_TECH =
-            "Bu bir Türkçe ses kaydıdır. Cümle içinde deploy, commit, PR, pull request, merge, bug, build, pipeline, endpoint, refactor, backend, frontend gibi teknik İngilizce terimler geçebilir; Türkçe eklerle doğru ve hatasız yazılmalıdır.";
+            "High accuracy technical transcription. Technical terms like deploy, commit, PR, pull request, merge, bug, build, pipeline, endpoint, refactor, backend, frontend, database, API, test should be written accurately with proper casing.";
 
     private static final String PROMPT_DAILY =
-            "Bu bir Türkçe konuşma ses kaydıdır. Noktalama işaretlerine, büyük ve küçük harf kurallarına ve günlük konuşma dilinin akıcılığına dikkat edilerek yazıya dökülmelidir.";
+            "Conversational speech transcription with accurate punctuation, proper capitalization, and natural spoken language flow.";
 
     private static final String PROMPT_BILINGUAL =
             "Turkish and English mixed speech transcription. Maintain code-switching accuracy, technical terminology, and proper capitalization in both Turkish and English seamlessly.";
@@ -179,8 +179,8 @@ public class MainActivity extends AppCompatActivity {
         // Silence Slider
         sliderSilence.addOnChangeListener((slider, value, fromUser) -> {
             int ms = (int) value;
-            String profile = ms <= 600 ? "(Ultra Hızlı)" : ms <= 900 ? "(Dengeli / Önerilen)" : "(Geniş Cümle)";
-            tvSilenceLabel.setText("Sessizlik Eşiği: " + ms + " ms " + profile);
+            String profile = ms <= 600 ? "(Ultra Fast)" : ms <= 900 ? "(Balanced / Recommended)" : "(Long Sentence)";
+            tvSilenceLabel.setText("Silence Threshold: " + ms + " ms " + profile);
         });
 
         // Enable vertical scrolling inside multiline prompt within NestedScrollView
@@ -211,11 +211,11 @@ public class MainActivity extends AppCompatActivity {
 
     private void updateModuleStatusBadge() {
         if (isModuleActive()) {
-            tvModuleStatus.setText("⚡ LSPosed: AKTİF");
+            tvModuleStatus.setText("⚡ LSPosed: ACTIVE");
             tvModuleStatus.setBackgroundResource(R.drawable.bg_badge_active);
             tvModuleStatus.setTextColor(ContextCompat.getColor(this, R.color.cyber_green));
         } else {
-            tvModuleStatus.setText("⚠️ LSPosed: ETKİN DEĞİL");
+            tvModuleStatus.setText("⚠️ LSPosed: NOT ACTIVE");
             tvModuleStatus.setBackgroundResource(R.drawable.bg_badge_inactive);
             tvModuleStatus.setTextColor(ContextCompat.getColor(this, R.color.cyber_amber));
         }
@@ -223,32 +223,32 @@ public class MainActivity extends AppCompatActivity {
 
     private void showModuleStatusDialog() {
         String message = isModuleActive()
-                ? "LSPosed modülü başarıyla devrede!\n\nSwiftKey klavyenizdeki mikrofon butonu doğrudan Groq Whisper motoruna yönlendirilmektedir."
-                : "LSPosed modülü henüz etkinleştirilmedi veya SwiftKey kapsamı seçilmedi.\n\nLütfen LSPosed uygulamasını açın, 'SwiftKey Whisper' modülünü etkinleştirin ve 'Microsoft SwiftKey Klavye'yi kapsam (scope) olarak işaretleyin.";
+                ? "LSPosed module is active!\n\nThe microphone button in Microsoft SwiftKey is routed directly to the Groq Whisper engine."
+                : "LSPosed module is not enabled or SwiftKey is not in scope.\n\nPlease open LSPosed Manager, enable 'SwiftKey Whisper', and check 'Microsoft SwiftKey' in the scope list.";
 
         new AlertDialog.Builder(this)
-                .setTitle("LSPosed Modül Durumu")
+                .setTitle("LSPosed Module Status")
                 .setMessage(message)
-                .setPositiveButton("Tamam", null)
+                .setPositiveButton("OK", null)
                 .show();
     }
 
     private void fetchLiveModels() {
         String key = etApiKey.getText() != null ? etApiKey.getText().toString().trim() : "";
         if (key.isEmpty()) {
-            Toast.makeText(this, "Lütfen önce geçerli bir Groq API Anahtarı girin.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Please enter a valid Groq API Key first.", Toast.LENGTH_SHORT).show();
             return;
         }
 
         btnFetchModels.setEnabled(false);
-        btnFetchModels.setText("Alınıyor...");
+        btnFetchModels.setText("Loading...");
 
         WhisperClient.fetchAvailableModels(key, new WhisperClient.ModelsCallback() {
             @Override
             public void onSuccess(List<String> models) {
                 mainHandler.post(() -> {
                     btnFetchModels.setEnabled(true);
-                    btnFetchModels.setText("Modeller");
+                    btnFetchModels.setText("Models");
 
                     availableModels.clear();
                     availableModels.addAll(models);
@@ -257,7 +257,7 @@ public class MainActivity extends AppCompatActivity {
                     if (!models.isEmpty()) {
                         autoCompleteModel.setText(models.get(0), false);
                     }
-                    Toast.makeText(MainActivity.this, models.size() + " adet Whisper modeli başarıyla getirildi!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, models.size() + " Whisper models loaded successfully!", Toast.LENGTH_SHORT).show();
                 });
             }
 
@@ -265,8 +265,8 @@ public class MainActivity extends AppCompatActivity {
             public void onError(String errorMessage) {
                 mainHandler.post(() -> {
                     btnFetchModels.setEnabled(true);
-                    btnFetchModels.setText("Modeller");
-                    Toast.makeText(MainActivity.this, "Hata: " + errorMessage, Toast.LENGTH_LONG).show();
+                    btnFetchModels.setText("Models");
+                    Toast.makeText(MainActivity.this, "Error: " + errorMessage, Toast.LENGTH_LONG).show();
                 });
             }
         });
@@ -283,14 +283,12 @@ public class MainActivity extends AppCompatActivity {
 
         int silenceMs = config.getSilenceTimeoutMs();
         sliderSilence.setValue(Math.max(300, Math.min(3000, silenceMs)));
-        String profile = silenceMs <= 600 ? "(Ultra Hızlı)" : silenceMs <= 900 ? "(Dengeli / Önerilen)" : "(Geniş Cümle)";
-        tvSilenceLabel.setText("Sessizlik Eşiği: " + silenceMs + " ms " + profile);
+        String profile = silenceMs <= 600 ? "(Ultra Fast)" : silenceMs <= 900 ? "(Balanced / Recommended)" : "(Long Sentence)";
+        tvSilenceLabel.setText("Silence Threshold: " + silenceMs + " ms " + profile);
 
         swStreaming.setChecked(config.isStreamingEnabled());
         swAutoLanguage.setChecked(config.isAutoLanguage());
         swDirectInjection.setChecked(config.isDirectInjection());
-
-
     }
 
     private void saveConfig() {
@@ -305,7 +303,7 @@ public class MainActivity extends AppCompatActivity {
         config.setDirectInjection(swDirectInjection.isChecked());
 
         config.save(this);
-        Toast.makeText(this, "Tüm ayarlar kaydedildi ve güncellendi!", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "All settings saved and applied!", Toast.LENGTH_SHORT).show();
     }
 
     private void toggleTestRecording() {
@@ -319,7 +317,7 @@ public class MainActivity extends AppCompatActivity {
             isTestRecording = false;
             btnMicTest.setBackgroundResource(R.drawable.bg_mic_idle);
             btnMicTest.setImageResource(R.drawable.ic_mic);
-            tvTestStatus.setText("Durum: Analiz ediliyor...");
+            tvTestStatus.setText("Status: Analyzing...");
         } else {
             startTestRecording();
         }
@@ -330,16 +328,16 @@ public class MainActivity extends AppCompatActivity {
 
         String apiKey = config.getApiKey();
         if (apiKey == null || apiKey.trim().isEmpty()) {
-            tvTestResult.setText("> HATA: Lütfen geçerli bir Groq API Anahtarı girin.");
+            tvTestResult.setText("> ERROR: Please enter a valid Groq API Key first.");
             return;
         }
 
         isTestRecording = true;
         btnMicTest.setBackgroundResource(R.drawable.bg_mic_recording);
         btnMicTest.setImageResource(R.drawable.ic_stop);
-        tvTestStatus.setText("Dinleniyor... (Konuşun, bitirmek için tekrar basın)");
+        tvTestStatus.setText("Listening... (Speak now, tap again to finish)");
         tvLatencyBadge.setVisibility(View.GONE);
-        tvTestResult.setText("> Ses kaydı dinleniyor...");
+        tvTestResult.setText("> Listening to audio stream...");
         pbAudioVisualizer.setProgress(0);
 
         new Thread(() -> {
@@ -395,14 +393,14 @@ public class MainActivity extends AppCompatActivity {
                     btnMicTest.setBackgroundResource(R.drawable.bg_mic_idle);
                     btnMicTest.setImageResource(R.drawable.ic_mic);
                     pbAudioVisualizer.setProgress(0);
-                    tvTestStatus.setText("Durum: Groq LPU'ya iletiliyor...");
+                    tvTestStatus.setText("Status: Transcribing via Groq LPU...");
                 });
 
                 byte[] pcmData = pcmStream.toByteArray();
                 if (pcmData.length < 4800) {
                     mainHandler.post(() -> {
-                        tvTestStatus.setText("Durum: Ses algılanmadı.");
-                        tvTestResult.setText("> Ses çok kısa veya mikrofon algılanmadı.");
+                        tvTestStatus.setText("Status: No speech detected.");
+                        tvTestResult.setText("> Audio too short or microphone did not detect speech.");
                     });
                     return;
                 }
@@ -415,19 +413,19 @@ public class MainActivity extends AppCompatActivity {
                     public void onSuccess(String text) {
                         long latency = System.currentTimeMillis() - reqStart;
                         mainHandler.post(() -> {
-                            tvTestStatus.setText("Durum: Tamamlandı");
+                            tvTestStatus.setText("Status: Completed");
                             tvLatencyBadge.setText("⚡ " + latency + " ms");
                             tvLatencyBadge.setVisibility(View.VISIBLE);
-                            tvTestResult.setText("> " + (text.isEmpty() ? "(Boş metin)" : text));
+                            tvTestResult.setText("> " + (text.isEmpty() ? "(Empty output)" : text));
                         });
                     }
 
                     @Override
                     public void onError(String errorMessage) {
                         mainHandler.post(() -> {
-                            tvTestStatus.setText("Durum: Hata");
+                            tvTestStatus.setText("Status: Error");
                             tvLatencyBadge.setVisibility(View.GONE);
-                            tvTestResult.setText("> HATA:\n" + errorMessage);
+                            tvTestResult.setText("> ERROR:\n" + errorMessage);
                         });
                     }
                 });
@@ -442,8 +440,8 @@ public class MainActivity extends AppCompatActivity {
                     btnMicTest.setBackgroundResource(R.drawable.bg_mic_idle);
                     btnMicTest.setImageResource(R.drawable.ic_mic);
                     pbAudioVisualizer.setProgress(0);
-                    tvTestStatus.setText("Durum: Hata oluştu");
-                    tvTestResult.setText("> Mikrofon Hatası: " + t.getMessage());
+                    tvTestStatus.setText("Status: Error occurred");
+                    tvTestResult.setText("> Microphone Error: " + t.getMessage());
                 });
             }
         }).start();
@@ -455,8 +453,8 @@ public class MainActivity extends AppCompatActivity {
             String clean = text.toString().replaceFirst("^>\\s*", "").trim();
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) {
-                cm.setPrimaryClip(ClipData.newPlainText("Whisper Transkripsiyon", clean));
-                Toast.makeText(this, "Metin panoya kopyalandı!", Toast.LENGTH_SHORT).show();
+                cm.setPrimaryClip(ClipData.newPlainText("Whisper Transcription", clean));
+                Toast.makeText(this, "Text copied to clipboard!", Toast.LENGTH_SHORT).show();
             }
         }
     }
@@ -475,9 +473,9 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQ_CODE) {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Mikrofon izni onaylandı.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Microphone permission granted.", Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Ses testi için mikrofon izni gereklidir.", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Microphone permission is required for audio test.", Toast.LENGTH_LONG).show();
             }
         }
     }

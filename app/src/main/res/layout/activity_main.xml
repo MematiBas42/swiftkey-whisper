@@ -64,7 +64,7 @@
                     android:id="@+id/tvModuleStatus"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⚡ LSPosed: AKTİF"
+                    android:text="⚡ LSPosed: ACTIVE"
                     android:background="@drawable/bg_badge_active"
                     android:textColor="@color/cyber_green"
                     android:textSize="11sp"
@@ -102,7 +102,7 @@
                         android:layout_marginBottom="10dp"
                         app:endIconMode="password_toggle"
                         app:endIconTint="@color/neon_cyan"
-                        app:helperText="Groq API Anahtarı (gsk_...)"
+                        app:helperText="Groq API Key (gsk_...)"
                         app:helperTextTextColor="@color/cyber_text_muted">
 
                         <com.google.android.material.textfield.TextInputEditText
@@ -154,7 +154,7 @@
                             style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                             android:layout_width="wrap_content"
                             android:layout_height="54dp"
-                            android:text="Modeller"
+                            android:text="Models"
                             android:textSize="11sp"
                             android:textColor="@color/neon_cyan"
                             app:strokeColor="@color/neon_cyan"
@@ -210,7 +210,7 @@
                         android:id="@+id/tvSilenceLabel"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Sessizlik Eşiği: 750 ms (Dengeli / Önerilen)"
+                        android:text="Silence Threshold: 750 ms (Balanced / Recommended)"
                         android:textColor="@color/cyber_text_primary"
                         android:textSize="13sp" />
 
@@ -232,7 +232,7 @@
                         android:id="@+id/swStreaming"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Akıllı Canlı Akış (Streaming Mode)"
+                        android:text="Smart Live Streaming (Streaming Mode)"
                         android:textColor="@color/cyber_text_primary"
                         android:checked="true"
                         app:thumbTint="@color/neon_cyan"
@@ -241,7 +241,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Konuşurken ara segmentleri göndererek kelimeleri canlı yazar."
+                        android:text="Streams real-time partial segments while speaking for zero-lag output."
                         android:textColor="@color/cyber_text_muted"
                         android:textSize="11sp"
                         android:layout_marginBottom="8dp" />
@@ -250,7 +250,7 @@
                         android:id="@+id/swAutoLanguage"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Klavye Dilini Otomatik Algıla"
+                        android:text="Auto-detect Keyboard Language"
                         android:textColor="@color/cyber_text_primary"
                         android:checked="true"
                         app:thumbTint="@color/neon_cyan"
@@ -259,7 +259,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="SwiftKey klavye dilini (tr-TR -> tr) dinamik olarak yakalar."
+                        android:text="Dynamically captures active SwiftKey keyboard language (e.g. en-US -> en, tr-TR -> tr)."
                         android:textColor="@color/cyber_text_muted"
                         android:textSize="11sp"
                         android:layout_marginBottom="8dp" />
@@ -268,7 +268,7 @@
                         android:id="@+id/swDirectInjection"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Doğrudan Metin Enjeksiyonu"
+                        android:text="Direct Text Injection"
                         android:textColor="@color/cyber_text_primary"
                         android:checked="true"
                         app:thumbTint="@color/neon_cyan"
@@ -277,7 +277,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Metni klavye InputConnection ile doğrudan hedefe basar."
+                        android:text="Commits text directly into active input via InputConnection fallback."
                         android:textColor="@color/cyber_text_muted"
                         android:textSize="11sp"
                         android:layout_marginBottom="12dp" />
@@ -293,8 +293,8 @@
                             android:id="@+id/etLanguage"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="Varsayılan Dil Kodu"
-                            android:text="tr"
+                            android:hint="Default / Fallback Language Code (ISO-639-1)"
+                            android:text="en"
                             android:textColor="@color/cyber_text_primary" />
                     </com.google.android.material.textfield.TextInputLayout>
                 </LinearLayout>
@@ -325,7 +325,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Doğru teknik terminoloji ve halüsinasyon önleme istemi:"
+                        android:text="Technical vocabulary and hallucination prevention prompt:"
                         android:textColor="@color/cyber_text_secondary"
                         android:textSize="12sp"
                         android:layout_marginBottom="10dp" />
@@ -348,7 +348,7 @@
                                 style="@style/Widget.SwiftKeyWhisper.Chip"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Teknik / Yazılım (TR)"
+                                android:text="Technical / Dev (EN)"
                                 android:checked="true" />
 
                             <com.google.android.material.chip.Chip
@@ -356,7 +356,7 @@
                                 style="@style/Widget.SwiftKeyWhisper.Chip"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Genel Günlük Türkçe" />
+                                android:text="Conversational English" />
 
                             <com.google.android.material.chip.Chip
                                 android:id="@+id/chipPromptBilingual"
@@ -377,7 +377,7 @@
                             android:id="@+id/etPrompt"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="İstem (Prompt)"
+                            android:hint="System Prompt"
                             android:inputType="textMultiLine|textCapSentences"
                             android:lines="3"
                             android:maxLines="7"
@@ -456,7 +456,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Durum: Hazır (Mikrofona basıp konuşun)"
+                            android:text="Status: Ready (Tap mic and speak)"
                             android:textColor="@color/cyber_text_secondary"
                             android:textSize="12sp" />
 
@@ -511,7 +511,7 @@
                             android:id="@+id/tvTestResult"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="> Beklemede..."
+                            android:text="> Standby..."
                             android:textColor="@color/cyber_green"
                             android:textSize="13sp"
                             android:typeface="monospace"
@@ -535,7 +535,7 @@
             android:layout_width="match_parent"
             android:layout_height="54dp"
             android:background="@drawable/bg_gradient_button"
-            android:text="AYARLARI KAYDET"
+            android:text="SAVE CONFIGURATION"
             android:textColor="#0A0E17"
             android:textStyle="bold"
             android:letterSpacing="0.05"
