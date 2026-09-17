@@ -39,7 +39,7 @@ jobs:
 
       - name: Build Signed Release APK
         env:
-          KEYSTORE_PATH: "keystore.jks"
+          KEYSTORE_PATH: "${{ github.workspace }}/keystore.jks"
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
@@ -59,7 +59,13 @@ jobs:
             TAG="${{ github.event.inputs.tag_name }}"
           fi
           OUTPUT_NAME="SwiftKeyWhisper-${TAG}.apk"
-          cp app/build/outputs/apk/release/app-release.apk "${OUTPUT_NAME}"
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "Error: No release APK found!"
+            exit 1
+          fi
+          echo "Found APK at: $APK_PATH"
+          cp "$APK_PATH" "${OUTPUT_NAME}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "asset=${OUTPUT_NAME}" >> $GITHUB_OUTPUT
 
