@@ -1,0 +1,549 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
+    android:fitsSystemWindows="true"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/cyber_bg">
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:clipToPadding="false"
+        android:paddingBottom="90dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- HEADER BAR -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="16dp">
+
+                <ImageView
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:src="@drawable/ic_mic"
+                    app:tint="@color/neon_cyan"
+                    android:layout_marginEnd="12dp"
+                    tools:ignore="ContentDescription" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SWIFTKEY WHISPER"
+                        android:textColor="@color/cyber_text_primary"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Groq AI Speech Pipeline"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvModuleStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="⚡ LSPosed: AKTİF"
+                    android:background="@drawable/bg_badge_active"
+                    android:textColor="@color/cyber_green"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <!-- 01 // MODEL & ENGINE CARD -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.SwiftKeyWhisper.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="01 // MODEL &amp; ENGINE"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- API KEY -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilApiKey"
+                        style="@style/Widget.SwiftKeyWhisper.TextInputLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        app:endIconMode="password_toggle"
+                        app:endIconTint="@color/neon_cyan"
+                        app:helperText="Groq API Anahtarı (gsk_...)"
+                        app:helperTextTextColor="@color/cyber_text_muted">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etApiKey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Groq API Key"
+                            android:inputType="textPassword"
+                            android:importantForAutofill="no"
+                            android:textColor="@color/cyber_text_primary" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- MODEL SELECTOR & FETCH BUTTON -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <com.google.android.material.textfield.TextInputLayout
+                            android:id="@+id/tilModel"
+                            style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox.ExposedDropdownMenu"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginEnd="8dp"
+                            app:boxStrokeColor="@color/cyber_surface_border"
+                            app:boxCornerRadiusTopStart="10dp"
+                            app:boxCornerRadiusTopEnd="10dp"
+                            app:boxCornerRadiusBottomStart="10dp"
+                            app:boxCornerRadiusBottomEnd="10dp"
+                            app:hintTextColor="@color/neon_cyan"
+                            android:textColorHint="@color/cyber_text_muted">
+
+                            <AutoCompleteTextView
+                                android:id="@+id/autoCompleteModel"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:hint="Model"
+                                android:text="whisper-large-v3"
+                                android:inputType="text"
+                                android:textColor="@color/cyber_text_primary"
+                                tools:ignore="LabelFor" />
+                        </com.google.android.material.textfield.TextInputLayout>
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnFetchModels"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="54dp"
+                            android:text="Modeller"
+                            android:textSize="11sp"
+                            android:textColor="@color/neon_cyan"
+                            app:strokeColor="@color/neon_cyan"
+                            app:strokeWidth="1dp"
+                            app:icon="@drawable/ic_refresh"
+                            app:iconTint="@color/neon_cyan"
+                            app:cornerRadius="10dp" />
+                    </LinearLayout>
+
+                    <!-- ENDPOINT -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilEndpoint"
+                        style="@style/Widget.SwiftKeyWhisper.TextInputLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etEndpoint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Endpoint URL"
+                            android:text="https://api.groq.com/openai/v1/audio/transcriptions"
+                            android:textColor="@color/cyber_text_muted"
+                            android:textSize="12sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 02 // RECOGNITION PIPELINE CARD -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.SwiftKeyWhisper.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="02 // RECOGNITION PIPELINE"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- SILENCE SLIDER -->
+                    <TextView
+                        android:id="@+id/tvSilenceLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sessizlik Eşiği: 750 ms (Dengeli / Önerilen)"
+                        android:textColor="@color/cyber_text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderSilence"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="300"
+                        android:valueTo="3000"
+                        android:stepSize="50"
+                        android:value="750"
+                        app:thumbColor="@color/neon_cyan"
+                        app:trackColorActive="@color/neon_cyan"
+                        app:trackColorInactive="@color/cyber_surface_border"
+                        android:layout_marginBottom="8dp" />
+
+                    <!-- SWITCHES -->
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swStreaming"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Akıllı Canlı Akış (Streaming Mode)"
+                        android:textColor="@color/cyber_text_primary"
+                        android:checked="true"
+                        app:thumbTint="@color/neon_cyan"
+                        app:trackTint="@color/neon_cyan_glow" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Konuşurken ara segmentleri göndererek kelimeleri canlı yazar."
+                        android:textColor="@color/cyber_text_muted"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swAutoLanguage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Klavye Dilini Otomatik Algıla"
+                        android:textColor="@color/cyber_text_primary"
+                        android:checked="true"
+                        app:thumbTint="@color/neon_cyan"
+                        app:trackTint="@color/neon_cyan_glow" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="SwiftKey klavye dilini (tr-TR -> tr) dinamik olarak yakalar."
+                        android:textColor="@color/cyber_text_muted"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swDirectInjection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Doğrudan Metin Enjeksiyonu"
+                        android:textColor="@color/cyber_text_primary"
+                        android:checked="true"
+                        app:thumbTint="@color/neon_cyan"
+                        app:trackTint="@color/neon_cyan_glow" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Metni klavye InputConnection ile doğrudan hedefe basar."
+                        android:textColor="@color/cyber_text_muted"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- FALLBACK LANGUAGE -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilLanguage"
+                        style="@style/Widget.SwiftKeyWhisper.TextInputLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etLanguage"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Varsayılan Dil Kodu"
+                            android:text="tr"
+                            android:textColor="@color/cyber_text_primary" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 03 // CONTEXT & VOCABULARY CARD -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.SwiftKeyWhisper.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="03 // CONTEXT &amp; VOCABULARY"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"
+                        android:layout_marginBottom="6dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Doğru teknik terminoloji ve halüsinasyon önleme istemi:"
+                        android:textColor="@color/cyber_text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="10dp" />
+
+                    <!-- PROMPT PRESET CHIPS -->
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        android:layout_marginBottom="10dp">
+
+                        <com.google.android.material.chip.ChipGroup
+                            android:id="@+id/chipGroupPrompts"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            app:singleSelection="true">
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipPromptTech"
+                                style="@style/Widget.SwiftKeyWhisper.Chip"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Teknik / Yazılım (TR)"
+                                android:checked="true" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipPromptDaily"
+                                style="@style/Widget.SwiftKeyWhisper.Chip"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Genel Günlük Türkçe" />
+
+                            <com.google.android.material.chip.Chip
+                                android:id="@+id/chipPromptBilingual"
+                                style="@style/Widget.SwiftKeyWhisper.Chip"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Bilingual (TR/EN)" />
+                        </com.google.android.material.chip.ChipGroup>
+                    </HorizontalScrollView>
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilPrompt"
+                        style="@style/Widget.SwiftKeyWhisper.TextInputLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etPrompt"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="İstem (Prompt)"
+                            android:inputType="textMultiLine|textCapSentences"
+                            android:lines="3"
+                            android:maxLines="7"
+                            android:minLines="3"
+                            android:gravity="top|start"
+                            android:scrollbars="vertical"
+                            android:isScrollContainer="true"
+                            android:overScrollMode="always"
+                            android:textColor="@color/cyber_text_primary" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- 04 // LIVE AUDIO & API TEST CARD -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.SwiftKeyWhisper.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="04 // LIVE AUDIO &amp; API TEST"
+                        android:textColor="@color/neon_cyan"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.05"
+                        android:layout_marginBottom="14dp" />
+
+                    <!-- MIC BUTTON -->
+                    <FrameLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginBottom="12dp">
+
+                        <ImageButton
+                            android:id="@+id/btnMicTest"
+                            android:layout_width="72dp"
+                            android:layout_height="72dp"
+                            android:background="@drawable/bg_mic_idle"
+                            android:src="@drawable/ic_mic"
+                            app:tint="@color/neon_cyan"
+                            android:scaleType="centerInside"
+                            tools:ignore="ContentDescription" />
+                    </FrameLayout>
+
+                    <!-- LIVE AMPLITUDE PROGRESS -->
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/pbAudioVisualizer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:max="100"
+                        android:progress="0"
+                        app:indicatorColor="@color/neon_cyan"
+                        app:trackColor="@color/cyber_surface_elevated"
+                        app:trackCornerRadius="4dp"
+                        android:layout_marginBottom="10dp" />
+
+                    <!-- STATUS & LATENCY -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="10dp">
+
+                        <TextView
+                            android:id="@+id/tvTestStatus"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Durum: Hazır (Mikrofona basıp konuşun)"
+                            android:textColor="@color/cyber_text_secondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/tvLatencyBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="⚡ 0 ms"
+                            android:background="@drawable/bg_badge_active"
+                            android:textColor="@color/cyber_green"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <!-- TERMINAL CONSOLE BOX -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_console"
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginBottom="6dp">
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="TERMINAL // TRANSCRIBED OUTPUT"
+                                android:textColor="@color/cyber_text_muted"
+                                android:textSize="10sp"
+                                android:textStyle="bold" />
+
+                            <ImageButton
+                                android:id="@+id/btnCopyResult"
+                                android:layout_width="24dp"
+                                android:layout_height="24dp"
+                                android:background="?attr/selectableItemBackgroundBorderless"
+                                android:src="@drawable/ic_copy"
+                                app:tint="@color/cyber_green"
+                                android:scaleType="centerInside"
+                                tools:ignore="ContentDescription" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvTestResult"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="> Beklemede..."
+                            android:textColor="@color/cyber_green"
+                            android:textSize="13sp"
+                            android:typeface="monospace"
+                            android:minLines="2" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <!-- STICKY BOTTOM SAVE BAR -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#DD0A0E17"
+        android:padding="16dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSave"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:background="@drawable/bg_gradient_button"
+            android:text="AYARLARI KAYDET"
+            android:textColor="#0A0E17"
+            android:textStyle="bold"
+            android:letterSpacing="0.05"
+            app:icon="@drawable/ic_save"
+            app:iconTint="#0A0E17"
+            app:iconGravity="textStart"
+            app:backgroundTint="@null"
+            app:cornerRadius="12dp" />
+    </LinearLayout>
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

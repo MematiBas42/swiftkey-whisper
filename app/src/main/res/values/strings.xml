@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">SwiftKey Whisper</string>
+    <string name="xposed_desc">SwiftKey için Groq/OpenAI Whisper yüksek hızlı sesle yazma yönlendiricisi</string>
+</resources>

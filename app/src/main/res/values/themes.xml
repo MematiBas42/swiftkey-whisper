@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.SwiftKeyWhisper" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/neon_cyan</item>
+        <item name="colorPrimaryVariant">@color/neon_cyan_dark</item>
+        <item name="colorOnPrimary">#0A0E17</item>
+        <item name="colorSecondary">@color/neon_violet</item>
+        <item name="colorSecondaryVariant">@color/neon_violet_dark</item>
+        <item name="colorOnSecondary">#FFFFFF</item>
+        <item name="colorSurface">@color/cyber_surface</item>
+        <item name="colorOnSurface">@color/cyber_text_primary</item>
+        <item name="android:colorBackground">@color/cyber_bg</item>
+        <item name="android:windowBackground">@color/cyber_bg</item>
+        <item name="android:statusBarColor">@color/cyber_bg</item>
+        <item name="android:navigationBarColor">@color/cyber_bg</item>
+        <item name="android:textColorPrimary">@color/cyber_text_primary</item>
+        <item name="android:textColorSecondary">@color/cyber_text_secondary</item>
+    </style>
+</resources>

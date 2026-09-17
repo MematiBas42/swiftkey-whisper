@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Deep Canvas & Surface (OLED Dark) -->
+    <color name="cyber_bg">#0A0E17</color>
+    <color name="cyber_surface">#111726</color>
+    <color name="cyber_surface_elevated">#161F33</color>
+    <color name="cyber_surface_border">#1E2B45</color>
+    <color name="cyber_surface_border_active">#00F0FF</color>
+    <color name="cyber_console_bg">#06090E</color>
+
+    <!-- Neon Accents -->
+    <color name="neon_cyan">#00F0FF</color>
+    <color name="neon_cyan_dark">#00B4D8</color>
+    <color name="neon_cyan_glow">#2600F0FF</color>
+    <color name="neon_violet">#A855F7</color>
+    <color name="neon_violet_dark">#7928CA</color>
+    <color name="neon_violet_glow">#26A855F7</color>
+
+    <!-- Status & Semantic Colors -->
+    <color name="cyber_green">#00FF9D</color>
+    <color name="cyber_green_glow">#2600FF9D</color>
+    <color name="cyber_amber">#F59E0B</color>
+    <color name="cyber_amber_glow">#26F59E0B</color>
+    <color name="cyber_crimson">#FF3366</color>
+    <color name="cyber_crimson_glow">#33FF3366</color>
+
+    <!-- Typography Hierarchy -->
+    <color name="cyber_text_primary">#F8FAFC</color>
+    <color name="cyber_text_secondary">#94A3B8</color>
+    <color name="cyber_text_muted">#64748B</color>
+</resources>
