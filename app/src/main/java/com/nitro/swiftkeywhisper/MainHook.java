@@ -9,18 +9,27 @@ import com.nitro.swiftkeywhisper.hook.InputConnectionTracker;
 import com.nitro.swiftkeywhisper.hook.SpeechRecognizerHook;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
+import de.robv.android.xposed.IXposedHookZygoteInit;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
-public class MainHook implements IXposedHookLoadPackage {
+public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
+    public static String MODULE_PATH = null;
+
     private static final String TARGET_PKG_1 = "com.touchtype.swiftkey";
     private static final String TARGET_PKG_2 = "com.touchtype.swiftkey.beta";
     private static final String SELF_PKG = "com.nitro.swiftkeywhisper";
 
     private static boolean isInitialized = false;
+
+    @Override
+    public void initZygote(StartupParam startupParam) throws Throwable {
+        MODULE_PATH = startupParam.modulePath;
+        XposedBridge.log("[SwiftKeyWhisper] initZygote: modulePath=" + MODULE_PATH);
+    }
 
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) throws Throwable {

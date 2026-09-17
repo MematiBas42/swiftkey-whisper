@@ -7,11 +7,14 @@ import android.media.AudioManager;
 import android.media.SoundPool;
 import android.util.Log;
 
+import com.nitro.swiftkeywhisper.MainHook;
 import com.nitro.swiftkeywhisper.config.ConfigManager;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 public class EarconPlayer {
     private static final String TAG = "SwiftKeyWhisperEarcon";
@@ -90,7 +93,64 @@ public class EarconPlayer {
     }
 
     private int loadSingleSound(Context hostContext, Context moduleContext, String filename) {
-        // Try AssetFileDescriptor from moduleContext
+        // 1. Check if already extracted and valid in host cache directory
+        try {
+            File cacheFile = new File(hostContext.getCacheDir(), filename);
+            if (cacheFile.exists() && cacheFile.length() > 0) {
+                int id = soundPool.load(cacheFile.getAbsolutePath(), 1);
+                Log.d(TAG, "Loaded " + filename + " from existing cache: " + cacheFile.getAbsolutePath());
+                return id;
+            }
+        } catch (Throwable ignored) {}
+
+        // 2. Extract directly from module APK via MainHook.MODULE_PATH
+        String apkPath = MainHook.MODULE_PATH;
+        if (apkPath == null) {
+            // Search /data/app/ for module APK as fallback
+            try {
+                File dataApp = new File("/data/app");
+                File[] dirs = dataApp.listFiles((dir, name) -> name.contains("com.nitro.swiftkeywhisper"));
+                if (dirs != null && dirs.length > 0) {
+                    File baseApk = new File(dirs[0], "base.apk");
+                    if (baseApk.exists() && baseApk.canRead()) {
+                        apkPath = baseApk.getAbsolutePath();
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        if (apkPath != null) {
+            try {
+                File apkFile = new File(apkPath);
+                if (apkFile.exists() && apkFile.canRead()) {
+                    ZipFile zip = new ZipFile(apkFile);
+                    ZipEntry entry = zip.getEntry("assets/earcons/" + filename);
+                    if (entry != null) {
+                        File cacheFile = new File(hostContext.getCacheDir(), filename);
+                        InputStream is = zip.getInputStream(entry);
+                        FileOutputStream fos = new FileOutputStream(cacheFile);
+                        byte[] buf = new byte[4096];
+                        int r;
+                        while ((r = is.read(buf)) != -1) {
+                            fos.write(buf, 0, r);
+                        }
+                        fos.close();
+                        is.close();
+                        zip.close();
+                        cacheFile.setReadable(true, false);
+
+                        int id = soundPool.load(cacheFile.getAbsolutePath(), 1);
+                        Log.d(TAG, "Extracted & loaded " + filename + " from module APK (" + apkPath + ")");
+                        return id;
+                    }
+                    zip.close();
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Failed extracting " + filename + " from APK: " + t.getMessage());
+            }
+        }
+
+        // 3. Try AssetFileDescriptor from moduleContext
         if (moduleContext != null) {
             try {
                 AssetFileDescriptor afd = moduleContext.getAssets().openFd("earcons/" + filename);
@@ -100,42 +160,39 @@ public class EarconPlayer {
             } catch (Throwable ignored) {}
         }
 
-        // Try extracting to host cache directory
+        // 4. Try extracting from moduleContext or hostContext assets
         try {
             File cacheFile = new File(hostContext.getCacheDir(), filename);
-            if (!cacheFile.exists() || cacheFile.length() == 0) {
-                InputStream is = null;
-                if (moduleContext != null) {
-                    try {
-                        is = moduleContext.getAssets().open("earcons/" + filename);
-                    } catch (Throwable ignored) {}
-                }
-                if (is == null) {
-                    try {
-                        is = hostContext.getAssets().open("earcons/" + filename);
-                    } catch (Throwable ignored) {}
-                }
-
-                if (is != null) {
-                    FileOutputStream fos = new FileOutputStream(cacheFile);
-                    byte[] buf = new byte[4096];
-                    int r;
-                    while ((r = is.read(buf)) != -1) {
-                        fos.write(buf, 0, r);
-                    }
-                    fos.close();
-                    is.close();
-                }
+            InputStream is = null;
+            if (moduleContext != null) {
+                try {
+                    is = moduleContext.getAssets().open("earcons/" + filename);
+                } catch (Throwable ignored) {}
+            }
+            if (is == null) {
+                try {
+                    is = hostContext.getAssets().open("earcons/" + filename);
+                } catch (Throwable ignored) {}
             }
 
-            if (cacheFile.exists() && cacheFile.length() > 0) {
+            if (is != null) {
+                FileOutputStream fos = new FileOutputStream(cacheFile);
+                byte[] buf = new byte[4096];
+                int r;
+                while ((r = is.read(buf)) != -1) {
+                    fos.write(buf, 0, r);
+                }
+                fos.close();
+                is.close();
+                cacheFile.setReadable(true, false);
+
                 int id = soundPool.load(cacheFile.getAbsolutePath(), 1);
-                Log.d(TAG, "Loaded " + filename + " via cache file: " + cacheFile.getAbsolutePath());
+                Log.d(TAG, "Loaded " + filename + " via extracted stream: " + cacheFile.getAbsolutePath());
                 return id;
             }
         } catch (Throwable ignored) {}
 
-        // Fallback: check /data/local/tmp/
+        // 5. Fallback: check /data/local/tmp/
         try {
             File tmpFile = new File("/data/local/tmp/" + filename);
             if (tmpFile.exists() && tmpFile.canRead()) {
