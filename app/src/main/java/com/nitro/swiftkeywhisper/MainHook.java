@@ -5,8 +5,8 @@ import android.app.Instrumentation;
 import android.content.Context;
 
 import com.nitro.swiftkeywhisper.config.ConfigManager;
-import com.nitro.swiftkeywhisper.hook.InputConnectionTracker;
 import com.nitro.swiftkeywhisper.hook.SpeechRecognizerHook;
+import com.nitro.swiftkeywhisper.hook.XSharedPreferencesProvider;
 
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.IXposedHookZygoteInit;
@@ -88,13 +88,11 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookZygoteInit {
 
         XposedBridge.log("[SwiftKeyWhisper] Initializing SwiftKeyWhisper hooks...");
 
-        // 1. Initialize configuration
-        ConfigManager.getInstance(context).loadFileConfig();
+        // 1. Initialize configuration via XSharedPreferences
+        ConfigManager config = ConfigManager.getInstance(context);
+        XSharedPreferencesProvider.reloadAndApply(config);
 
-        // 2. Hook InputMethodService to track InputConnection
-        InputConnectionTracker.initHook(classLoader);
-
-        // 3. Hook SpeechRecognizer to redirect audio to Whisper
+        // 2. Hook SpeechRecognizer to redirect audio to Whisper
         SpeechRecognizerHook.initHook(classLoader, context);
 
         XposedBridge.log("[SwiftKeyWhisper] All hooks initialized successfully!");

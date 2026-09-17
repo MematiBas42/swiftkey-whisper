@@ -33,11 +33,6 @@ public class AudioRecorderManager {
     // Safety timeout: 10 minutes matching SwiftKey native SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS
     private static final long MAX_SESSION_TIMEOUT_MS = 600000L;
 
-    public interface ResultCallback {
-        void onResult(String text);
-        void onError(String error);
-    }
-
     private static AudioRecorderManager instance;
     private AudioRecord audioRecord;
     private volatile boolean isRecording = false;
@@ -59,7 +54,6 @@ public class AudioRecorderManager {
     private RecognitionListener currentListener;
     private ConfigManager currentConfig;
     private String currentLanguage;
-    private ResultCallback currentCallback;
     private VoiceActivityDetector vad;
     private Context appContext;
     private final AudioEffectsHelper effectsHelper = new AudioEffectsHelper();
@@ -71,11 +65,11 @@ public class AudioRecorderManager {
         return instance;
     }
 
-    public synchronized void startRecording(RecognitionListener listener, ConfigManager config, String dynamicLang, ResultCallback callback) {
-        startRecording(this.appContext, listener, config, dynamicLang, callback);
+    public synchronized void startRecording(RecognitionListener listener, ConfigManager config, String dynamicLang) {
+        startRecording(this.appContext, listener, config, dynamicLang);
     }
 
-    public synchronized void startRecording(Context context, RecognitionListener listener, ConfigManager config, String dynamicLang, ResultCallback callback) {
+    public synchronized void startRecording(Context context, RecognitionListener listener, ConfigManager config, String dynamicLang) {
         if (isRecording) {
             cancel();
         }
@@ -89,7 +83,6 @@ public class AudioRecorderManager {
         this.currentListener = listener;
         this.currentConfig = config;
         this.currentLanguage = dynamicLang;
-        this.currentCallback = callback;
         this.currentConfig.clearContext(); // Reset session context
 
         int minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT);
@@ -278,11 +271,6 @@ public class AudioRecorderManager {
 
                 if (currentConfig != null) {
                     currentConfig.appendContextText(text);
-                }
-
-                final ResultCallback callback = currentCallback;
-                if (callback != null) {
-                    callback.onResult(text);
                 }
 
                 final RecognitionListener listener = currentListener;
@@ -488,7 +476,6 @@ public class AudioRecorderManager {
         }
 
         currentListener = null;
-        currentCallback = null;
         Log.i(TAG, "Audio recording cancelled and cleaned up");
     }
 

@@ -292,24 +292,6 @@
                         android:text="Dynamically captures active SwiftKey keyboard language (e.g. en-US -> en, tr-TR -> tr)."
                         android:textColor="@color/cyber_text_muted"
                         android:textSize="11sp"
-                        android:layout_marginBottom="8dp" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/swDirectInjection"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Direct Text Injection"
-                        android:textColor="@color/cyber_text_primary"
-                        android:checked="true"
-                        app:thumbTint="@color/neon_cyan"
-                        app:trackTint="@color/neon_cyan_glow" />
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Commits text directly into active input via InputConnection fallback."
-                        android:textColor="@color/cyber_text_muted"
-                        android:textSize="11sp"
                         android:layout_marginBottom="12dp" />
 
                     <!-- FALLBACK LANGUAGE -->

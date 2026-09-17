@@ -179,16 +179,14 @@ SwiftKeyWhisper provides a Material 3 companion interface and a direct JSON conf
 | **Live Streaming** | `streaming_enabled` | `true` | Enables real-time partial word streaming while speaking. |
 | **Partial Interval** | `partial_interval_ms`| `1000 ms` | Frequency of intermediate streaming requests. |
 | **Sound Effects** | `sound_effects_enabled` | `true` | Plays low-latency start/stop dictation earcons. |
-| **Direct Injection** | `direct_injection` | `false` | Fallback direct input commit (recommended `false` to preserve SwiftKey Fluency). |
 
-> **Configuration File:** Settings are automatically synchronized with:
-> `/data/local/tmp/swiftkey_whisper_config.json` (permissions `666`).
+> **Cross-Process Storage:** Settings are securely stored in module preferences and synchronized in real-time across process boundaries with microsecond latency using LSPosed `XSharedPreferences`. All preferences and credentials are automatically purged by Android when the app is uninstalled.
 
 ---
 
 ## 🔒 Security & Privacy
 
-* **Zero Hardcoded Secrets:** No API keys or private tokens are embedded in the APK binary. Keys are stored strictly within Android `SharedPreferences` and local private storage.
+* **Zero Hardcoded Secrets & Clean Uninstallation:** No API keys or private tokens are embedded in the APK binary. Keys are stored strictly within Android module `SharedPreferences` (`swiftkey_whisper_prefs.xml`), which Android automatically purges when the companion app is uninstalled.
 * **Direct Cloud Ingestion:** Audio recordings are processed in-memory as PCM byte buffers, converted directly to WAV, and sent to Groq Cloud over TLS 1.3 encryption. No unencrypted audio files are saved to permanent disk storage.
 
 ---

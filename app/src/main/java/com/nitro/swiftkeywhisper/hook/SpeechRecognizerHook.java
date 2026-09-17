@@ -17,7 +17,9 @@ import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -26,7 +28,9 @@ import de.robv.android.xposed.XposedHelpers;
 public class SpeechRecognizerHook {
     private static final String TAG = "SwiftKeyWhisperHook";
 
+    private static final Map<Object, RecognitionListener> listenerMap = new WeakHashMap<>();
     private static volatile RecognitionListener activeListener;
+    private static WeakReference<Object> activeRecognizerRef = new WeakReference<>(null);
     private static Context appContext;
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     private static final Set<Class<?>> hookedClasses = new HashSet<>();
@@ -79,6 +83,26 @@ public class SpeechRecognizerHook {
         }
     }
 
+    private static boolean isActiveRecognizer(Object thisObject) {
+        if (thisObject == null) return false;
+        Object active = activeRecognizerRef.get();
+        if (active == null) return false;
+        if (thisObject == active) return true;
+
+        // In Android 14+, SpeechRecognizerProxy delegates to SpeechRecognizerImpl (mDelegate)
+        try {
+            Object delegate = XposedHelpers.getObjectField(active, "mDelegate");
+            if (delegate == thisObject) return true;
+        } catch (Throwable ignored) {}
+
+        try {
+            Object delegate = XposedHelpers.getObjectField(thisObject, "mDelegate");
+            if (delegate == active) return true;
+        } catch (Throwable ignored) {}
+
+        return false;
+    }
+
     private static synchronized void hookSpeechRecognizerClass(Class<?> clazz) {
         if (clazz == null || hookedClasses.contains(clazz)) {
             return;
@@ -95,9 +119,13 @@ public class SpeechRecognizerHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                            if (param.thisObject != null && param.args[0] instanceof RecognitionListener) {
+                                listenerMap.put(param.thisObject, (RecognitionListener) param.args[0]);
+                            }
                             activeListener = (RecognitionListener) param.args[0];
                             XposedBridge.log("[SwiftKeyWhisper] Captured RecognitionListener on " + clazz.getSimpleName() +
-                                    ": " + (activeListener != null ? activeListener.getClass().getName() : "null"));
+                                    " (" + System.identityHashCode(param.thisObject) + "): " +
+                                    (activeListener != null ? activeListener.getClass().getName() : "null"));
                         }
                     }
             );
@@ -110,10 +138,26 @@ public class SpeechRecognizerHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            XposedBridge.log("[SwiftKeyWhisper] >>> Intercepted startListening() on " + clazz.getSimpleName());
+                            XposedBridge.log("[SwiftKeyWhisper] >>> Intercepted startListening() on " + clazz.getSimpleName() +
+                                    " (" + System.identityHashCode(param.thisObject) + ")");
 
                             // Prevent Google TTS / system SpeechRecognizer IPC
                             param.setResult(null);
+
+                            activeRecognizerRef = new WeakReference<>(param.thisObject);
+
+                            RecognitionListener listener = listenerMap.get(param.thisObject);
+                            if (listener == null) {
+                                try {
+                                    Object delegate = XposedHelpers.getObjectField(param.thisObject, "mDelegate");
+                                    if (delegate != null) {
+                                        listener = listenerMap.get(delegate);
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                            if (listener != null) {
+                                activeListener = listener;
+                            }
 
                             Intent intent = (Intent) param.args[0];
                             String dynamicLang = null;
@@ -126,30 +170,13 @@ public class SpeechRecognizerHook {
                             }
 
                             ConfigManager config = ConfigManager.getInstance(appContext);
-                            config.loadFileConfig(); // Always reload latest API key / settings
+                            XSharedPreferencesProvider.reloadAndApply(config); // Always reload latest API key / settings via XSharedPreferences
 
                             AudioRecorderManager.getInstance().startRecording(
                                     appContext,
                                     activeListener,
                                     config,
-                                    dynamicLang,
-                                    new AudioRecorderManager.ResultCallback() {
-                                        @Override
-                                        public void onResult(String text) {
-                                            // Fallback direct injection if listener failed to commit
-                                            if (config.isDirectInjection()) {
-                                                InputConnectionTracker.commitText(text);
-                                            }
-                                        }
-
-                                        @Override
-                                        public void onError(String error) {
-                                            XposedBridge.log("[SwiftKeyWhisper] Recording error: " + error);
-                                            if (activeListener != null) {
-                                                mainHandler.post(() -> activeListener.onError(SpeechRecognizer.ERROR_NETWORK));
-                                            }
-                                        }
-                                    }
+                                    dynamicLang
                             );
                         }
                     }
@@ -162,9 +189,15 @@ public class SpeechRecognizerHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            XposedBridge.log("[SwiftKeyWhisper] >>> Intercepted stopListening() on " + clazz.getSimpleName());
+                            XposedBridge.log("[SwiftKeyWhisper] >>> Intercepted stopListening() on " + clazz.getSimpleName() +
+                                    " (" + System.identityHashCode(param.thisObject) + ")");
                             param.setResult(null);
-                            AudioRecorderManager.getInstance().stopListening();
+                            if (isActiveRecognizer(param.thisObject)) {
+                                AudioRecorderManager.getInstance().stopListening();
+                            } else {
+                                XposedBridge.log("[SwiftKeyWhisper] Ignoring stopListening() on inactive recognizer (" +
+                                        System.identityHashCode(param.thisObject) + ")");
+                            }
                         }
                     }
             );
@@ -176,11 +209,18 @@ public class SpeechRecognizerHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            XposedBridge.log("[SwiftKeyWhisper] Intercepted cancel() on " + clazz.getSimpleName());
+                            XposedBridge.log("[SwiftKeyWhisper] Intercepted cancel() on " + clazz.getSimpleName() +
+                                    " (" + System.identityHashCode(param.thisObject) + ")");
                             param.setResult(null);
-                            activeListener = null;
-                            AudioRecorderManager.getInstance().cancel();
-                            resetLottieMicrophoneView();
+                            if (isActiveRecognizer(param.thisObject)) {
+                                activeRecognizerRef.clear();
+                                activeListener = null;
+                                AudioRecorderManager.getInstance().cancel();
+                                resetLottieMicrophoneView();
+                            } else {
+                                XposedBridge.log("[SwiftKeyWhisper] Ignoring cancel() on inactive recognizer (" +
+                                        System.identityHashCode(param.thisObject) + ")");
+                            }
                         }
                     }
             );
@@ -192,11 +232,19 @@ public class SpeechRecognizerHook {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            XposedBridge.log("[SwiftKeyWhisper] Intercepted destroy() on " + clazz.getSimpleName());
+                            XposedBridge.log("[SwiftKeyWhisper] Intercepted destroy() on " + clazz.getSimpleName() +
+                                    " (" + System.identityHashCode(param.thisObject) + ")");
                             param.setResult(null);
-                            activeListener = null;
-                            AudioRecorderManager.getInstance().cancel();
-                            resetLottieMicrophoneView();
+                            if (isActiveRecognizer(param.thisObject)) {
+                                XposedBridge.log("[SwiftKeyWhisper] Destroying active recognizer, stopping voice session");
+                                activeRecognizerRef.clear();
+                                activeListener = null;
+                                AudioRecorderManager.getInstance().cancel();
+                                resetLottieMicrophoneView();
+                            } else {
+                                XposedBridge.log("[SwiftKeyWhisper] Ignoring destroy() on inactive recognizer (" +
+                                        System.identityHashCode(param.thisObject) + ", e.g. background capability check)");
+                            }
                         }
                     }
             );

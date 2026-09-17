@@ -79,7 +79,6 @@ public class MainActivity extends AppCompatActivity {
     private Slider sliderAutoStop;
     private SwitchMaterial swStreaming;
     private SwitchMaterial swAutoLanguage;
-    private SwitchMaterial swDirectInjection;
     private TextInputEditText etLanguage;
 
     // Context & Vocabulary
@@ -148,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
         sliderAutoStop = findViewById(R.id.sliderAutoStop);
         swStreaming = findViewById(R.id.swStreaming);
         swAutoLanguage = findViewById(R.id.swAutoLanguage);
-        swDirectInjection = findViewById(R.id.swDirectInjection);
         etLanguage = findViewById(R.id.etLanguage);
 
         chipGroupPrompts = findViewById(R.id.chipGroupPrompts);
@@ -312,7 +310,6 @@ public class MainActivity extends AppCompatActivity {
 
         swStreaming.setChecked(config.isStreamingEnabled());
         swAutoLanguage.setChecked(config.isAutoLanguage());
-        swDirectInjection.setChecked(config.isDirectInjection());
     }
 
     private void saveConfig() {
@@ -325,7 +322,6 @@ public class MainActivity extends AppCompatActivity {
         config.setAutoStopTimeoutMs((int) sliderAutoStop.getValue());
         config.setStreamingEnabled(swStreaming.isChecked());
         config.setAutoLanguage(swAutoLanguage.isChecked());
-        config.setDirectInjection(swDirectInjection.isChecked());
 
         config.save(this);
         Toast.makeText(this, "All settings saved and applied!", Toast.LENGTH_SHORT).show();

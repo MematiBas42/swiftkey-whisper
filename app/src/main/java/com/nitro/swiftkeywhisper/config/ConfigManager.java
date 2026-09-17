@@ -4,18 +4,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
-import org.json.JSONObject;
-
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.util.LinkedList;
 import java.util.Locale;
 
 public class ConfigManager {
     private static final String TAG = "SwiftKeyWhisperConfig";
     public static final String PREFS_NAME = "swiftkey_whisper_prefs";
-    public static final String CONFIG_FILE_PATH = "/data/local/tmp/swiftkey_whisper_config.json";
 
     public static final String KEY_API_KEY = "api_key";
     public static final String KEY_ENDPOINT = "endpoint";
@@ -26,7 +21,6 @@ public class ConfigManager {
     public static final String KEY_STREAMING_ENABLED = "streaming_enabled";
     public static final String KEY_PARTIAL_INTERVAL_MS = "partial_interval_ms";
     public static final String KEY_AUTO_LANGUAGE = "auto_language";
-    public static final String KEY_DIRECT_INJECTION = "direct_injection";
     public static final String KEY_SOUND_EFFECTS_ENABLED = "sound_effects_enabled";
     public static final String KEY_AUTO_STOP_TIMEOUT_MS = "auto_stop_timeout_ms";
 
@@ -36,7 +30,6 @@ public class ConfigManager {
     public static final boolean DEFAULT_STREAMING_ENABLED = true;
     public static final int DEFAULT_PARTIAL_INTERVAL_MS = 1000;
     public static final boolean DEFAULT_AUTO_LANGUAGE = true;
-    public static final boolean DEFAULT_DIRECT_INJECTION = false; // SwiftKey native Fluency Engine handles auto-caps, auto-spacing and model learning
     public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
     public static final int DEFAULT_AUTO_STOP_TIMEOUT_MS = 1500; // 1.5s silence auto-terminates session to static mic
 
@@ -72,7 +65,6 @@ public class ConfigManager {
     private boolean streamingEnabled = DEFAULT_STREAMING_ENABLED;
     private int partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
     private boolean autoLanguage = DEFAULT_AUTO_LANGUAGE;
-    private boolean directInjection = DEFAULT_DIRECT_INJECTION;
     private boolean soundEffectsEnabled = DEFAULT_SOUND_EFFECTS_ENABLED;
     private int autoStopTimeoutMs = DEFAULT_AUTO_STOP_TIMEOUT_MS;
 
@@ -90,67 +82,55 @@ public class ConfigManager {
         return instance;
     }
 
-    public void load(Context context) {
-        if (context != null) {
-            try {
-                SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                this.apiKey = prefs.getString(KEY_API_KEY, "");
-                this.endpoint = prefs.getString(KEY_ENDPOINT, DEFAULT_ENDPOINT);
-                this.model = prefs.getString(KEY_MODEL, DEFAULT_MODEL);
-                this.language = prefs.getString(KEY_LANGUAGE, DEFAULT_LANGUAGE);
-                this.prompt = prefs.getString(KEY_PROMPT, DEFAULT_PROMPT);
-                this.silenceTimeoutMs = prefs.getInt(KEY_SILENCE_TIMEOUT_MS, DEFAULT_SILENCE_TIMEOUT_MS);
-                this.streamingEnabled = prefs.getBoolean(KEY_STREAMING_ENABLED, DEFAULT_STREAMING_ENABLED);
-                this.partialIntervalMs = prefs.getInt(KEY_PARTIAL_INTERVAL_MS, DEFAULT_PARTIAL_INTERVAL_MS);
-                this.autoLanguage = prefs.getBoolean(KEY_AUTO_LANGUAGE, DEFAULT_AUTO_LANGUAGE);
-                this.directInjection = prefs.getBoolean(KEY_DIRECT_INJECTION, DEFAULT_DIRECT_INJECTION);
-                this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
-                this.autoStopTimeoutMs = prefs.getInt(KEY_AUTO_STOP_TIMEOUT_MS, DEFAULT_AUTO_STOP_TIMEOUT_MS);
-
-                if (!this.apiKey.isEmpty()) {
-                    return;
-                }
-            } catch (Throwable t) {
-                Log.w(TAG, "Failed reading from SharedPreferences: " + t.getMessage());
-            }
+    @SuppressWarnings("deprecation")
+    public static SharedPreferences getSharedPreferences(Context context) {
+        if (context == null) {
+            return null;
         }
-
-        loadFileConfig();
-    }
-
-    public void loadFileConfig() {
         try {
-            File file = new File(CONFIG_FILE_PATH);
-            if (file.exists() && file.canRead()) {
-                FileInputStream fis = new FileInputStream(file);
-                byte[] data = new byte[(int) file.length()];
-                fis.read(data);
-                fis.close();
-
-                JSONObject json = new JSONObject(new String(data, "UTF-8"));
-                this.apiKey = json.optString(KEY_API_KEY, this.apiKey);
-                this.endpoint = json.optString(KEY_ENDPOINT, this.endpoint);
-                this.model = json.optString(KEY_MODEL, this.model);
-                this.language = json.optString(KEY_LANGUAGE, this.language);
-                this.prompt = json.optString(KEY_PROMPT, this.prompt);
-                this.silenceTimeoutMs = json.optInt(KEY_SILENCE_TIMEOUT_MS, this.silenceTimeoutMs);
-                this.streamingEnabled = json.optBoolean(KEY_STREAMING_ENABLED, this.streamingEnabled);
-                this.partialIntervalMs = json.optInt(KEY_PARTIAL_INTERVAL_MS, this.partialIntervalMs);
-                this.autoLanguage = json.optBoolean(KEY_AUTO_LANGUAGE, this.autoLanguage);
-                this.directInjection = json.optBoolean(KEY_DIRECT_INJECTION, this.directInjection);
-                this.soundEffectsEnabled = json.optBoolean(KEY_SOUND_EFFECTS_ENABLED, this.soundEffectsEnabled);
-                this.autoStopTimeoutMs = json.optInt(KEY_AUTO_STOP_TIMEOUT_MS, this.autoStopTimeoutMs);
-                Log.i(TAG, "Loaded config from " + CONFIG_FILE_PATH);
-            }
+            return context.getSharedPreferences(PREFS_NAME, Context.MODE_WORLD_READABLE);
+        } catch (SecurityException se) {
+            Log.w(TAG, "MODE_WORLD_READABLE not permitted, falling back to MODE_PRIVATE: " + se.getMessage());
+            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         } catch (Throwable t) {
-            Log.w(TAG, "Failed loading file config: " + t.getMessage());
+            Log.e(TAG, "Failed to get SharedPreferences: " + t.getMessage(), t);
+            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         }
     }
 
-    public void save(Context context) {
+    public synchronized void loadFromPreferences(SharedPreferences prefs) {
+        if (prefs == null) return;
+        try {
+            this.apiKey = prefs.getString(KEY_API_KEY, this.apiKey != null ? this.apiKey : "");
+            this.endpoint = prefs.getString(KEY_ENDPOINT, DEFAULT_ENDPOINT);
+            this.model = prefs.getString(KEY_MODEL, DEFAULT_MODEL);
+            this.language = prefs.getString(KEY_LANGUAGE, DEFAULT_LANGUAGE);
+            this.prompt = prefs.getString(KEY_PROMPT, DEFAULT_PROMPT);
+            this.silenceTimeoutMs = prefs.getInt(KEY_SILENCE_TIMEOUT_MS, DEFAULT_SILENCE_TIMEOUT_MS);
+            this.streamingEnabled = prefs.getBoolean(KEY_STREAMING_ENABLED, DEFAULT_STREAMING_ENABLED);
+            this.partialIntervalMs = prefs.getInt(KEY_PARTIAL_INTERVAL_MS, DEFAULT_PARTIAL_INTERVAL_MS);
+            this.autoLanguage = prefs.getBoolean(KEY_AUTO_LANGUAGE, DEFAULT_AUTO_LANGUAGE);
+            this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
+            this.autoStopTimeoutMs = prefs.getInt(KEY_AUTO_STOP_TIMEOUT_MS, DEFAULT_AUTO_STOP_TIMEOUT_MS);
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed reading preferences: " + t.getMessage());
+        }
+    }
+
+    public synchronized void load(Context context) {
         if (context != null) {
-            try {
-                SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            SharedPreferences prefs = getSharedPreferences(context);
+            if (prefs != null) {
+                loadFromPreferences(prefs);
+            }
+        }
+    }
+
+    public synchronized void save(Context context) {
+        if (context == null) return;
+        try {
+            SharedPreferences prefs = getSharedPreferences(context);
+            if (prefs != null) {
                 prefs.edit()
                         .putString(KEY_API_KEY, apiKey)
                         .putString(KEY_ENDPOINT, endpoint)
@@ -161,39 +141,27 @@ public class ConfigManager {
                         .putBoolean(KEY_STREAMING_ENABLED, streamingEnabled)
                         .putInt(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs)
                         .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
-                        .putBoolean(KEY_DIRECT_INJECTION, directInjection)
                         .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
                         .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
-                        .apply();
-            } catch (Throwable t) {
-                Log.e(TAG, "Error saving SharedPreferences", t);
+                        .commit();
             }
-        }
 
-        try {
-            JSONObject json = new JSONObject();
-            json.put(KEY_API_KEY, apiKey);
-            json.put(KEY_ENDPOINT, endpoint);
-            json.put(KEY_MODEL, model);
-            json.put(KEY_LANGUAGE, language);
-            json.put(KEY_PROMPT, prompt);
-            json.put(KEY_SILENCE_TIMEOUT_MS, silenceTimeoutMs);
-            json.put(KEY_STREAMING_ENABLED, streamingEnabled);
-            json.put(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs);
-            json.put(KEY_AUTO_LANGUAGE, autoLanguage);
-            json.put(KEY_DIRECT_INJECTION, directInjection);
-            json.put(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled);
-            json.put(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs);
+            try {
+                File dataDir = new File(context.getApplicationInfo().dataDir);
+                File prefsDir = new File(dataDir, "shared_prefs");
+                File prefsFile = new File(prefsDir, PREFS_NAME + ".xml");
+                if (prefsDir.exists()) {
+                    prefsDir.setReadable(true, false);
+                    prefsDir.setExecutable(true, false);
+                }
+                if (prefsFile.exists()) {
+                    prefsFile.setReadable(true, false);
+                }
+            } catch (Throwable ignored) {}
 
-            File file = new File(CONFIG_FILE_PATH);
-            FileOutputStream fos = new FileOutputStream(file);
-            fos.write(json.toString(2).getBytes("UTF-8"));
-            fos.close();
-            file.setReadable(true, false);
-            file.setWritable(true, false);
-            Log.i(TAG, "Saved config to " + CONFIG_FILE_PATH);
+            Log.i(TAG, "Saved preferences to " + PREFS_NAME);
         } catch (Throwable t) {
-            Log.e(TAG, "Error saving file config", t);
+            Log.e(TAG, "Error saving SharedPreferences", t);
         }
     }
 
@@ -253,9 +221,6 @@ public class ConfigManager {
 
     public boolean isAutoLanguage() { return autoLanguage; }
     public void setAutoLanguage(boolean autoLanguage) { this.autoLanguage = autoLanguage; }
-
-    public boolean isDirectInjection() { return directInjection; }
-    public void setDirectInjection(boolean directInjection) { this.directInjection = directInjection; }
 
     public boolean isSoundEffectsEnabled() { return soundEffectsEnabled; }
     public void setSoundEffectsEnabled(boolean soundEffectsEnabled) { this.soundEffectsEnabled = soundEffectsEnabled; }
