@@ -75,6 +75,8 @@ public class MainActivity extends AppCompatActivity {
     // Pipeline
     private TextView tvSilenceLabel;
     private Slider sliderSilence;
+    private TextView tvAutoStopLabel;
+    private Slider sliderAutoStop;
     private SwitchMaterial swStreaming;
     private SwitchMaterial swAutoLanguage;
     private SwitchMaterial swDirectInjection;
@@ -142,6 +144,8 @@ public class MainActivity extends AppCompatActivity {
 
         tvSilenceLabel = findViewById(R.id.tvSilenceLabel);
         sliderSilence = findViewById(R.id.sliderSilence);
+        tvAutoStopLabel = findViewById(R.id.tvAutoStopLabel);
+        sliderAutoStop = findViewById(R.id.sliderAutoStop);
         swStreaming = findViewById(R.id.swStreaming);
         swAutoLanguage = findViewById(R.id.swAutoLanguage);
         swDirectInjection = findViewById(R.id.swDirectInjection);
@@ -181,6 +185,17 @@ public class MainActivity extends AppCompatActivity {
             int ms = (int) value;
             String profile = ms <= 600 ? "(Ultra Fast)" : ms <= 900 ? "(Balanced / Recommended)" : "(Long Sentence)";
             tvSilenceLabel.setText("Silence Threshold: " + ms + " ms " + profile);
+        });
+
+        // Auto Stop Slider
+        sliderAutoStop.addOnChangeListener((slider, value, fromUser) -> {
+            int ms = (int) value;
+            if (ms == 0) {
+                tvAutoStopLabel.setText("Auto Stop Threshold: Disabled (Never Stop)");
+            } else {
+                String profile = ms <= 1000 ? "(Ultra Fast)" : ms <= 2000 ? "(Recommended)" : "(Patient)";
+                tvAutoStopLabel.setText("Auto Stop Threshold: " + ms + " ms " + profile);
+            }
         });
 
         // Enable vertical scrolling inside multiline prompt within NestedScrollView
@@ -286,6 +301,15 @@ public class MainActivity extends AppCompatActivity {
         String profile = silenceMs <= 600 ? "(Ultra Fast)" : silenceMs <= 900 ? "(Balanced / Recommended)" : "(Long Sentence)";
         tvSilenceLabel.setText("Silence Threshold: " + silenceMs + " ms " + profile);
 
+        int autoStopMs = config.getAutoStopTimeoutMs();
+        sliderAutoStop.setValue(Math.max(0, Math.min(5000, autoStopMs)));
+        if (autoStopMs == 0) {
+            tvAutoStopLabel.setText("Auto Stop Threshold: Disabled (Never Stop)");
+        } else {
+            String stopProfile = autoStopMs <= 1000 ? "(Ultra Fast)" : autoStopMs <= 2000 ? "(Recommended)" : "(Patient)";
+            tvAutoStopLabel.setText("Auto Stop Threshold: " + autoStopMs + " ms " + stopProfile);
+        }
+
         swStreaming.setChecked(config.isStreamingEnabled());
         swAutoLanguage.setChecked(config.isAutoLanguage());
         swDirectInjection.setChecked(config.isDirectInjection());
@@ -298,6 +322,7 @@ public class MainActivity extends AppCompatActivity {
         config.setLanguage(etLanguage.getText() != null ? etLanguage.getText().toString().trim() : ConfigManager.DEFAULT_LANGUAGE);
         config.setPrompt(etPrompt.getText() != null ? etPrompt.getText().toString().trim() : ConfigManager.DEFAULT_PROMPT);
         config.setSilenceTimeoutMs((int) sliderSilence.getValue());
+        config.setAutoStopTimeoutMs((int) sliderAutoStop.getValue());
         config.setStreamingEnabled(swStreaming.isChecked());
         config.setAutoLanguage(swAutoLanguage.isChecked());
         config.setDirectInjection(swDirectInjection.isChecked());

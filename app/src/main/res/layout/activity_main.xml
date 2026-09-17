@@ -227,6 +227,36 @@
                         app:trackColorInactive="@color/cyber_surface_border"
                         android:layout_marginBottom="8dp" />
 
+                    <!-- AUTO STOP SLIDER -->
+                    <TextView
+                        android:id="@+id/tvAutoStopLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Auto Stop Threshold: 1500 ms (Recommended)"
+                        android:textColor="@color/cyber_text_primary"
+                        android:textSize="13sp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderAutoStop"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="0"
+                        android:valueTo="5000"
+                        android:stepSize="250"
+                        android:value="1500"
+                        app:thumbColor="@color/neon_cyan"
+                        app:trackColorActive="@color/neon_cyan"
+                        app:trackColorInactive="@color/cyber_surface_border"
+                        android:layout_marginBottom="4dp" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Automatically finishes dictation after prolonged silence. Set to 0 to disable (continuous listening)."
+                        android:textColor="@color/cyber_text_muted"
+                        android:textSize="11sp"
+                        android:layout_marginBottom="8dp" />
+
                     <!-- SWITCHES -->
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/swStreaming"

@@ -172,9 +172,10 @@ SwiftKeyWhisper provides a Material 3 companion interface and a direct JSON conf
 | :--- | :--- | :---: | :--- |
 | **API Key** | `api_key` | *None* | Your Groq Cloud API Key (`gsk_...`). |
 | **Model** | `model` | `whisper-large-v3` | Groq Whisper model endpoint. |
-| **Language** | `language` | `tr` | Target language code (`tr`, `en`, etc.). Supports auto-detection. |
+| **Language** | `language` | `en` | Fallback language code (`en`, `tr`, etc.). Supports auto-detection. |
 | **Auto Language** | `auto_language` | `true` | Matches keyboard's active input language dynamically. |
 | **Silence Timeout** | `silence_timeout_ms` | `750 ms` | Duration of silence before finalizing sentence segment. |
+| **Auto Stop Timeout** | `auto_stop_timeout_ms` | `1500 ms` | Duration of silence before automatically ending session to static mic (0 to disable / continuous). |
 | **Live Streaming** | `streaming_enabled` | `true` | Enables real-time partial word streaming while speaking. |
 | **Partial Interval** | `partial_interval_ms`| `1000 ms` | Frequency of intermediate streaming requests. |
 | **Sound Effects** | `sound_effects_enabled` | `true` | Plays low-latency start/stop dictation earcons. |

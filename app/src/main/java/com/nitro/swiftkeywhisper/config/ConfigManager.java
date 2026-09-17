@@ -28,6 +28,7 @@ public class ConfigManager {
     public static final String KEY_AUTO_LANGUAGE = "auto_language";
     public static final String KEY_DIRECT_INJECTION = "direct_injection";
     public static final String KEY_SOUND_EFFECTS_ENABLED = "sound_effects_enabled";
+    public static final String KEY_AUTO_STOP_TIMEOUT_MS = "auto_stop_timeout_ms";
 
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     public static final String DEFAULT_MODEL = "whisper-large-v3";
@@ -37,6 +38,7 @@ public class ConfigManager {
     public static final boolean DEFAULT_AUTO_LANGUAGE = true;
     public static final boolean DEFAULT_DIRECT_INJECTION = false; // SwiftKey native Fluency Engine handles auto-caps, auto-spacing and model learning
     public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
+    public static final int DEFAULT_AUTO_STOP_TIMEOUT_MS = 1500; // 1.5s silence auto-terminates session to static mic
 
     public static String getDefaultSystemLanguage() {
         try {
@@ -72,6 +74,7 @@ public class ConfigManager {
     private boolean autoLanguage = DEFAULT_AUTO_LANGUAGE;
     private boolean directInjection = DEFAULT_DIRECT_INJECTION;
     private boolean soundEffectsEnabled = DEFAULT_SOUND_EFFECTS_ENABLED;
+    private int autoStopTimeoutMs = DEFAULT_AUTO_STOP_TIMEOUT_MS;
 
     // Rolling context history for Whisper prompt chaining (~150 words)
     private final LinkedList<String> recentWords = new LinkedList<>();
@@ -102,6 +105,7 @@ public class ConfigManager {
                 this.autoLanguage = prefs.getBoolean(KEY_AUTO_LANGUAGE, DEFAULT_AUTO_LANGUAGE);
                 this.directInjection = prefs.getBoolean(KEY_DIRECT_INJECTION, DEFAULT_DIRECT_INJECTION);
                 this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
+                this.autoStopTimeoutMs = prefs.getInt(KEY_AUTO_STOP_TIMEOUT_MS, DEFAULT_AUTO_STOP_TIMEOUT_MS);
 
                 if (!this.apiKey.isEmpty()) {
                     return;
@@ -135,6 +139,7 @@ public class ConfigManager {
                 this.autoLanguage = json.optBoolean(KEY_AUTO_LANGUAGE, this.autoLanguage);
                 this.directInjection = json.optBoolean(KEY_DIRECT_INJECTION, this.directInjection);
                 this.soundEffectsEnabled = json.optBoolean(KEY_SOUND_EFFECTS_ENABLED, this.soundEffectsEnabled);
+                this.autoStopTimeoutMs = json.optInt(KEY_AUTO_STOP_TIMEOUT_MS, this.autoStopTimeoutMs);
                 Log.i(TAG, "Loaded config from " + CONFIG_FILE_PATH);
             }
         } catch (Throwable t) {
@@ -158,6 +163,7 @@ public class ConfigManager {
                         .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
                         .putBoolean(KEY_DIRECT_INJECTION, directInjection)
                         .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
+                        .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
                         .apply();
             } catch (Throwable t) {
                 Log.e(TAG, "Error saving SharedPreferences", t);
@@ -177,6 +183,7 @@ public class ConfigManager {
             json.put(KEY_AUTO_LANGUAGE, autoLanguage);
             json.put(KEY_DIRECT_INJECTION, directInjection);
             json.put(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled);
+            json.put(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs);
 
             File file = new File(CONFIG_FILE_PATH);
             FileOutputStream fos = new FileOutputStream(file);
@@ -252,4 +259,7 @@ public class ConfigManager {
 
     public boolean isSoundEffectsEnabled() { return soundEffectsEnabled; }
     public void setSoundEffectsEnabled(boolean soundEffectsEnabled) { this.soundEffectsEnabled = soundEffectsEnabled; }
+
+    public int getAutoStopTimeoutMs() { return autoStopTimeoutMs; }
+    public void setAutoStopTimeoutMs(int autoStopTimeoutMs) { this.autoStopTimeoutMs = autoStopTimeoutMs; }
 }

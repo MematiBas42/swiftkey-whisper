@@ -50,6 +50,7 @@ public class AudioRecorderManager {
     private Thread recordingThread;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private Runnable sessionTimeoutRunnable;
+    private Runnable autoStopRunnable;
 
     private final ExecutorService segmentExecutor = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService partialScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -144,6 +145,12 @@ public class AudioRecorderManager {
             };
             mainHandler.postDelayed(sessionTimeoutRunnable, MAX_SESSION_TIMEOUT_MS);
 
+            // Arm initial auto-stop timer (allowing generous time before first word)
+            int autoStopMs = config != null ? config.getAutoStopTimeoutMs() : ConfigManager.DEFAULT_AUTO_STOP_TIMEOUT_MS;
+            if (autoStopMs > 0) {
+                scheduleAutoStop(sessionId, Math.max(4000L, autoStopMs * 2L));
+            }
+
             // SwiftKey contract: signal readiness immediately (0ms delay, instant native response)
             if (listener != null) {
                 final RecognitionListener targetListener = listener;
@@ -177,6 +184,7 @@ public class AudioRecorderManager {
         if (sessionId != sessionEpoch.get() || !isRecording) {
             return;
         }
+        cancelAutoStop();
         isSpeechActive.set(true);
         Log.i(TAG, "Speech onset: activating SwiftKey speaking state & Lottie animation [session " + sessionId + "]");
 
@@ -224,6 +232,12 @@ public class AudioRecorderManager {
 
         stopPartialScheduler();
         WhisperClient.cancelPartialRequests();
+
+        // Arm auto-stop timer after sentence ends
+        int autoStopMs = currentConfig != null ? currentConfig.getAutoStopTimeoutMs() : ConfigManager.DEFAULT_AUTO_STOP_TIMEOUT_MS;
+        if (autoStopMs > 0) {
+            scheduleAutoStop(sessionId, autoStopMs);
+        }
 
         byte[] pcmData;
         synchronized (pcmLock) {
@@ -341,6 +355,28 @@ public class AudioRecorderManager {
         }
     }
 
+    private synchronized void scheduleAutoStop(int sessionId, long delayMs) {
+        cancelAutoStop();
+        if (currentConfig == null || delayMs <= 0) {
+            return;
+        }
+
+        autoStopRunnable = () -> {
+            if (sessionId == sessionEpoch.get() && isRecording && !isSpeechActive.get()) {
+                Log.i(TAG, "Auto-stop threshold reached (" + delayMs + " ms silence). Stopping session " + sessionId);
+                stopListening();
+            }
+        };
+        mainHandler.postDelayed(autoStopRunnable, delayMs);
+    }
+
+    private synchronized void cancelAutoStop() {
+        if (autoStopRunnable != null) {
+            mainHandler.removeCallbacks(autoStopRunnable);
+            autoStopRunnable = null;
+        }
+    }
+
     public synchronized void stopListening() {
         if (!isRecording) {
             return;
@@ -353,6 +389,8 @@ public class AudioRecorderManager {
         if (appContext != null) {
             EarconPlayer.getInstance(appContext).playSuccess();
         }
+
+        cancelAutoStop();
 
         if (sessionTimeoutRunnable != null) {
             mainHandler.removeCallbacks(sessionTimeoutRunnable);
@@ -424,6 +462,8 @@ public class AudioRecorderManager {
         if (wasRecording && appContext != null) {
             EarconPlayer.getInstance(appContext).playSuccess();
         }
+
+        cancelAutoStop();
 
         if (sessionTimeoutRunnable != null) {
             mainHandler.removeCallbacks(sessionTimeoutRunnable);
