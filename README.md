@@ -143,7 +143,7 @@ flowchart TD
 * Android 7.0 – 16 (Tested and verified on Android 16)
 * Root access via Magisk, KernelSU, or APatch
 * [LSPosed Framework](https://github.com/LSPosed/LSPosed) installed and active
-* [Microsoft SwiftKey Keyboard](https://play.google.com/store/apps/details?id=com.touchtype.swiftkey)
+* [Microsoft SwiftKey Keyboard](https://play.google.com/store/apps/details?id=com.touchtype.swiftkey) (Tested on `v9.13.14.5`)
 * A free [Groq Cloud API Key](https://console.groq.com/keys)
 
 ### Installation
