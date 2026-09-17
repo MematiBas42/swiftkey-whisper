@@ -125,6 +125,9 @@ public class WhisperClient {
 
         // Chained prompt with technical vocabulary and context
         String prompt = config.getChainedPrompt();
+        if (language != null && !language.toLowerCase().startsWith("tr") && prompt != null && prompt.contains("Türkçe ses kaydıdır")) {
+            prompt = ConfigManager.getDefaultPromptForLanguage(language);
+        }
         if (prompt != null && !prompt.trim().isEmpty()) {
             bodyBuilder.addFormDataPart("prompt", prompt.trim());
         }

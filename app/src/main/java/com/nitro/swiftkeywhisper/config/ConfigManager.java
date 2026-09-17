@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.LinkedList;
+import java.util.Locale;
 
 public class ConfigManager {
     private static final String TAG = "SwiftKeyWhisperConfig";
@@ -30,8 +31,6 @@ public class ConfigManager {
 
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     public static final String DEFAULT_MODEL = "whisper-large-v3";
-    public static final String DEFAULT_LANGUAGE = "tr";
-    public static final String DEFAULT_PROMPT = "Bu bir Türkçe ses kaydıdır. Cümle içinde deploy, commit, PR, pull request, merge, bug, build, pipeline, endpoint, refactor, backend, frontend gibi teknik İngilizce terimler geçebilir; Türkçe eklerle doğru ve hatasız yazılmalıdır.";
     public static final int DEFAULT_SILENCE_TIMEOUT_MS = 750; // Native-fast response (0.75s)
     public static final boolean DEFAULT_STREAMING_ENABLED = true;
     public static final int DEFAULT_PARTIAL_INTERVAL_MS = 1000;
@@ -39,11 +38,34 @@ public class ConfigManager {
     public static final boolean DEFAULT_DIRECT_INJECTION = false; // SwiftKey native Fluency Engine handles auto-caps, auto-spacing and model learning
     public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
 
+    public static String getDefaultSystemLanguage() {
+        try {
+            String lang = Locale.getDefault().getLanguage();
+            if (lang != null && !lang.trim().isEmpty()) {
+                return lang.toLowerCase().trim();
+            }
+        } catch (Throwable ignored) {}
+        return "en";
+    }
+
+    public static String getDefaultPromptForLanguage(String lang) {
+        if (lang != null && lang.toLowerCase().startsWith("tr")) {
+            return "Bu bir Türkçe ses kaydıdır. Cümle içinde deploy, commit, PR, pull request, merge, bug, build, pipeline, endpoint, refactor, backend, frontend gibi teknik İngilizce terimler geçebilir; Türkçe eklerle doğru ve hatasız yazılmalıdır.";
+        } else if (lang != null && lang.toLowerCase().startsWith("de")) {
+            return "Dies ist eine deutsche Sprachaufnahme. Bitte auf korrekte Zeichensetzung, Groß-/Kleinschreibung und technische Fachbegriffe achten.";
+        } else {
+            return "High accuracy speech transcription. Maintain proper capitalization, punctuation, and technical terminology.";
+        }
+    }
+
+    public static final String DEFAULT_LANGUAGE = getDefaultSystemLanguage();
+    public static final String DEFAULT_PROMPT = getDefaultPromptForLanguage(DEFAULT_LANGUAGE);
+
     private String apiKey = "";
     private String endpoint = DEFAULT_ENDPOINT;
     private String model = DEFAULT_MODEL;
-    private String language = DEFAULT_LANGUAGE;
-    private String prompt = DEFAULT_PROMPT;
+    private String language = getDefaultSystemLanguage();
+    private String prompt = getDefaultPromptForLanguage(language);
     private int silenceTimeoutMs = DEFAULT_SILENCE_TIMEOUT_MS;
     private boolean streamingEnabled = DEFAULT_STREAMING_ENABLED;
     private int partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
