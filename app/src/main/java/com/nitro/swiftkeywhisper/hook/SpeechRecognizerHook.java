@@ -13,6 +13,7 @@ import android.util.Log;
 import com.nitro.swiftkeywhisper.audio.AudioRecorderManager;
 import com.nitro.swiftkeywhisper.config.ConfigManager;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -25,10 +26,11 @@ import de.robv.android.xposed.XposedHelpers;
 public class SpeechRecognizerHook {
     private static final String TAG = "SwiftKeyWhisperHook";
 
-    private static RecognitionListener activeListener;
+    private static volatile RecognitionListener activeListener;
     private static Context appContext;
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     private static final Set<Class<?>> hookedClasses = new HashSet<>();
+    private static WeakReference<Object> lastLottieViewRef = new WeakReference<>(null);
 
     public static void initHook(ClassLoader classLoader, Context context) {
         appContext = context;
@@ -127,6 +129,7 @@ public class SpeechRecognizerHook {
                             config.loadFileConfig(); // Always reload latest API key / settings
 
                             AudioRecorderManager.getInstance().startRecording(
+                                    appContext,
                                     activeListener,
                                     config,
                                     dynamicLang,
@@ -175,7 +178,9 @@ public class SpeechRecognizerHook {
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                             XposedBridge.log("[SwiftKeyWhisper] Intercepted cancel() on " + clazz.getSimpleName());
                             param.setResult(null);
+                            activeListener = null;
                             AudioRecorderManager.getInstance().cancel();
+                            resetLottieMicrophoneView();
                         }
                     }
             );
@@ -189,8 +194,9 @@ public class SpeechRecognizerHook {
                         protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
                             XposedBridge.log("[SwiftKeyWhisper] Intercepted destroy() on " + clazz.getSimpleName());
                             param.setResult(null);
-                            AudioRecorderManager.getInstance().cancel();
                             activeListener = null;
+                            AudioRecorderManager.getInstance().cancel();
+                            resetLottieMicrophoneView();
                         }
                     }
             );
@@ -203,9 +209,52 @@ public class SpeechRecognizerHook {
     }
 
     /**
-     * Hooks SwiftKey's LottieVoiceMicrophoneView to eliminate the race condition where
-     * the calm resting waveform (VOICE_QUIET, frames 1..151) is skipped when SpeechRecognizer
-     * signals onReadyForSpeech while the initial frame 0 animation is still running.
+     * Forces SwiftKey's LottieVoiceMicrophoneView back to the static microphone icon (frame 0).
+     */
+    public static void resetLottieMicrophoneView() {
+        mainHandler.post(() -> {
+            try {
+                Object view = lastLottieViewRef != null ? lastLottieViewRef.get() : null;
+                if (view != null) {
+                    try {
+                        XposedHelpers.setBooleanField(view, "f7067s", false);
+                    } catch (Throwable ignored) {}
+
+                    float minFrame = 0f;
+                    float maxFrame = 0f;
+                    int repeatCount = 0;
+                    try {
+                        minFrame = (Float) XposedHelpers.callMethod(view, "getMinFrame");
+                        maxFrame = (Float) XposedHelpers.callMethod(view, "getMaxFrame");
+                        repeatCount = (Integer) XposedHelpers.callMethod(view, "getRepeatCount");
+                    } catch (Throwable ignored) {}
+
+                    boolean isAnimating = false;
+                    try {
+                        Object drawable = XposedHelpers.getObjectField(view, "f5631h");
+                        if (drawable != null) {
+                            isAnimating = (Boolean) XposedHelpers.callMethod(drawable, "h");
+                        }
+                    } catch (Throwable ignored) {}
+
+                    if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
+                        XposedHelpers.callMethod(view, "f", 0, 0, 0);
+                        XposedBridge.log("[SwiftKeyWhisper] resetLottieMicrophoneView: forced f(0, 0, 0) on LottieView");
+                    }
+                }
+            } catch (Throwable t) {
+                XposedBridge.log("[SwiftKeyWhisper] resetLottieMicrophoneView error: " + t.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Hooks SwiftKey's LottieVoiceMicrophoneView to:
+     * 1. Guarantee calm resting waveform (VOICE_QUIET, frames 1..151) when SpeechRecognizer
+     *    signals onReadyForSpeech while the initial frame 0 animation is still running.
+     * 2. Immediately stop undulating waveform and return to static mic icon (f(0, 0, 0))
+     *    on ANY voice stop event (DELETE, TYPING, ERROR, IDLE), fixing SwiftKey's native bug
+     *    where non-BUTTON stop triggers get stuck in an infinite undulating loop.
      */
     private static void hookLottieVoiceMicrophoneView(ClassLoader classLoader) {
         try {
@@ -217,6 +266,15 @@ public class SpeechRecognizerHook {
                 return;
             }
 
+            // Capture instance from constructor
+            XposedBridge.hookAllConstructors(lottieViewClass, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    lastLottieViewRef = new WeakReference<>(param.thisObject);
+                    XposedBridge.log("[SwiftKeyWhisper] Captured LottieVoiceMicrophoneView instance from constructor");
+                }
+            });
+
             for (Method method : lottieViewClass.getDeclaredMethods()) {
                 if ("setState".equals(method.getName()) && method.getParameterTypes().length == 1) {
                     XposedBridge.hookMethod(method, new XC_MethodHook() {
@@ -224,6 +282,7 @@ public class SpeechRecognizerHook {
                         protected void afterHookedMethod(MethodHookParam param) throws Throwable {
                             Object b1Var = param.args[0];
                             if (b1Var == null) return;
+                            lastLottieViewRef = new WeakReference<>(param.thisObject);
 
                             String className = b1Var.getClass().getName();
 
@@ -269,8 +328,8 @@ public class SpeechRecognizerHook {
                                     }
                                 }
                             }
-                            // 2. VoiceTypingFragment (u50.p0 or any other u50.k0 state)
-                            else if (className.endsWith(".p0") || className.endsWith(".k0")) {
+                            // 2. VoiceTypingFragment / Completed (u50.p0, u50.y0 or any other u50.k0 state)
+                            else if (className.endsWith(".p0") || className.endsWith(".k0") || className.endsWith(".y0")) {
                                 boolean speaking = false;
                                 try {
                                     speaking = (Boolean) XposedHelpers.callMethod(b1Var, "a");
@@ -300,6 +359,34 @@ public class SpeechRecognizerHook {
                                         XposedHelpers.callMethod(param.thisObject, "f", 152, 281, -1);
                                         XposedBridge.log("[SwiftKeyWhisper] LottieVoiceMicrophoneView: Resumed active talk wave f(152, 281, -1) for p0/k0 (speaking=true)");
                                     }
+                                }
+                            }
+                            // 3. VoiceTypingOver (u50.o0), VoiceTypingError (u50.m0), VoiceTypingIdle (u50.e1)
+                            else if (className.endsWith(".o0") || className.endsWith(".m0") || className.endsWith(".e1")) {
+                                try {
+                                    XposedHelpers.setBooleanField(param.thisObject, "f7067s", false);
+                                } catch (Throwable ignored) {}
+
+                                float minFrame = 0f;
+                                float maxFrame = 0f;
+                                int repeatCount = 0;
+                                try {
+                                    minFrame = (Float) XposedHelpers.callMethod(param.thisObject, "getMinFrame");
+                                    maxFrame = (Float) XposedHelpers.callMethod(param.thisObject, "getMaxFrame");
+                                    repeatCount = (Integer) XposedHelpers.callMethod(param.thisObject, "getRepeatCount");
+                                } catch (Throwable ignored) {}
+
+                                boolean isAnimating = false;
+                                try {
+                                    Object drawable = XposedHelpers.getObjectField(param.thisObject, "f5631h");
+                                    if (drawable != null) {
+                                        isAnimating = (Boolean) XposedHelpers.callMethod(drawable, "h");
+                                    }
+                                } catch (Throwable ignored) {}
+
+                                if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
+                                    XposedHelpers.callMethod(param.thisObject, "f", 0, 0, 0);
+                                    XposedBridge.log("[SwiftKeyWhisper] LottieVoiceMicrophoneView: Forced f(0, 0, 0) for " + className);
                                 }
                             }
                         }

@@ -60,6 +60,28 @@ public class WhisperClient {
         }
     }
 
+    public static void cancelSegmentRequests() {
+        for (Call call : httpClient.dispatcher().queuedCalls()) {
+            if (TAG_SEGMENT.equals(call.request().tag())) {
+                call.cancel();
+            }
+        }
+        for (Call call : httpClient.dispatcher().runningCalls()) {
+            if (TAG_SEGMENT.equals(call.request().tag())) {
+                call.cancel();
+            }
+        }
+    }
+
+    public static void cancelAllRequests() {
+        for (Call call : httpClient.dispatcher().queuedCalls()) {
+            call.cancel();
+        }
+        for (Call call : httpClient.dispatcher().runningCalls()) {
+            call.cancel();
+        }
+    }
+
     public static void transcribe(byte[] wavBytes, ConfigManager config, TranscriptionCallback callback) {
         transcribeInternal(wavBytes, config, null, TAG_SEGMENT, callback);
     }
@@ -119,7 +141,7 @@ public class WhisperClient {
             @Override
             public void onFailure(Call call, IOException e) {
                 if (call.isCanceled()) {
-                    Log.d(TAG, "Request (" + requestTag + ") was canceled as newer audio arrived.");
+                    Log.d(TAG, "Call cancelled, ignoring failure for " + requestTag);
                     return;
                 }
                 Log.e(TAG, "Transcription network failure (" + requestTag + ")", e);
@@ -129,6 +151,7 @@ public class WhisperClient {
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 if (call.isCanceled()) {
+                    Log.d(TAG, "Call cancelled, ignoring response for " + requestTag);
                     response.close();
                     return;
                 }
@@ -136,8 +159,17 @@ public class WhisperClient {
                 long duration = System.currentTimeMillis() - startTime;
                 String responseBody = response.body() != null ? response.body().string() : "";
 
+                if (call.isCanceled()) {
+                    Log.d(TAG, "Call cancelled after body read, ignoring response for " + requestTag);
+                    return;
+                }
+
                 if (!response.isSuccessful()) {
                     Log.e(TAG, "API error HTTP " + response.code() + ": " + responseBody);
+                    if (call.isCanceled()) {
+                        Log.d(TAG, "Call cancelled, ignoring error response for " + requestTag);
+                        return;
+                    }
                     String errorMsg = parseErrorMessage(responseBody, response.code());
                     callback.onError(errorMsg);
                     return;
@@ -148,9 +180,18 @@ public class WhisperClient {
                     String text = json.optString("text", "").trim();
                     text = cleanHallucinations(text);
 
+                    if (call.isCanceled()) {
+                        Log.d(TAG, "Call cancelled after parsing, ignoring result for " + requestTag);
+                        return;
+                    }
+
                     Log.i(TAG, "Transcription (" + requestTag + ") success in " + duration + "ms: " + text);
                     callback.onSuccess(text);
                 } catch (Exception e) {
+                    if (call.isCanceled()) {
+                        Log.d(TAG, "Call cancelled, ignoring parse exception for " + requestTag);
+                        return;
+                    }
                     Log.e(TAG, "JSON parse error: " + responseBody, e);
                     callback.onError("Failed parsing response: " + e.getMessage());
                 }

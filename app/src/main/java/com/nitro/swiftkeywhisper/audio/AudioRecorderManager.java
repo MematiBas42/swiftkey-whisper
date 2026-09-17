@@ -1,5 +1,6 @@
 package com.nitro.swiftkeywhisper.audio;
 
+import android.content.Context;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -21,12 +22,16 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class AudioRecorderManager {
     private static final String TAG = "SwiftKeyWhisperAudio";
     private static final int SAMPLE_RATE = 16000;
     private static final int CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO;
     private static final int AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT;
+
+    // Safety timeout: 10 minutes matching SwiftKey native SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS
+    private static final long MAX_SESSION_TIMEOUT_MS = 600000L;
 
     public interface ResultCallback {
         void onResult(String text);
@@ -37,12 +42,14 @@ public class AudioRecorderManager {
     private AudioRecord audioRecord;
     private volatile boolean isRecording = false;
     private final AtomicBoolean isSpeechActive = new AtomicBoolean(false);
+    private final AtomicInteger sessionEpoch = new AtomicInteger(0);
 
     private final Object pcmLock = new Object();
     private ByteArrayOutputStream currentSentencePcm;
 
     private Thread recordingThread;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private Runnable sessionTimeoutRunnable;
 
     private final ExecutorService segmentExecutor = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService partialScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -53,6 +60,8 @@ public class AudioRecorderManager {
     private String currentLanguage;
     private ResultCallback currentCallback;
     private VoiceActivityDetector vad;
+    private Context appContext;
+    private final AudioEffectsHelper effectsHelper = new AudioEffectsHelper();
 
     public static synchronized AudioRecorderManager getInstance() {
         if (instance == null) {
@@ -62,11 +71,20 @@ public class AudioRecorderManager {
     }
 
     public synchronized void startRecording(RecognitionListener listener, ConfigManager config, String dynamicLang, ResultCallback callback) {
+        startRecording(this.appContext, listener, config, dynamicLang, callback);
+    }
+
+    public synchronized void startRecording(Context context, RecognitionListener listener, ConfigManager config, String dynamicLang, ResultCallback callback) {
         if (isRecording) {
-            stopListening();
-            return;
+            cancel();
         }
 
+        this.appContext = context;
+        if (context != null) {
+            EarconPlayer.getInstance(context);
+        }
+
+        final int sessionId = sessionEpoch.incrementAndGet();
         this.currentListener = listener;
         this.currentConfig = config;
         this.currentLanguage = dynamicLang;
@@ -78,7 +96,7 @@ public class AudioRecorderManager {
 
         try {
             audioRecord = new AudioRecord(
-                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     SAMPLE_RATE,
                     CHANNEL_CONFIG,
                     AUDIO_FORMAT,
@@ -93,6 +111,8 @@ public class AudioRecorderManager {
                 return;
             }
 
+            effectsHelper.attach(audioRecord.getAudioSessionId());
+
             synchronized (pcmLock) {
                 currentSentencePcm = new ByteArrayOutputStream();
             }
@@ -102,12 +122,12 @@ public class AudioRecorderManager {
             vad = new VoiceActivityDetector(silenceTimeout, new VoiceActivityDetector.VadListener() {
                 @Override
                 public void onSpeechStart() {
-                    handleSpeechOnset();
+                    handleSpeechOnset(sessionId);
                 }
 
                 @Override
                 public void onSpeechEnd() {
-                    handleSpeechOffset();
+                    handleSpeechOffset(sessionId);
                 }
             });
 
@@ -115,19 +135,29 @@ public class AudioRecorderManager {
             isRecording = true;
             isSpeechActive.set(false);
 
-            Log.i(TAG, "Audio recording pipeline started (16kHz Mono)");
+            Log.i(TAG, "Audio recording pipeline started (VOICE_RECOGNITION, 16kHz Mono) [session " + sessionId + "]");
+
+            // Arm 10-minute maximum session safety timeout matching SwiftKey native
+            sessionTimeoutRunnable = () -> {
+                Log.w(TAG, "Max session safety timeout reached (10 minutes) for session " + sessionId);
+                stopListening();
+            };
+            mainHandler.postDelayed(sessionTimeoutRunnable, MAX_SESSION_TIMEOUT_MS);
 
             // SwiftKey contract: signal readiness immediately (0ms delay, instant native response)
             if (listener != null) {
                 final RecognitionListener targetListener = listener;
                 mainHandler.post(() -> {
-                    if (isRecording && targetListener == currentListener) {
+                    if (sessionId == sessionEpoch.get() && isRecording && targetListener == currentListener) {
                         targetListener.onReadyForSpeech(new Bundle());
+                        if (appContext != null) {
+                            EarconPlayer.getInstance(appContext).playOpen();
+                        }
                     }
                 });
             }
 
-            recordingThread = new Thread(new RecordingRunnable(bufferSize), "WhisperAudioCapture");
+            recordingThread = new Thread(new RecordingRunnable(bufferSize, sessionId), "WhisperAudioCapture-" + sessionId);
             recordingThread.start();
 
         } catch (SecurityException se) {
@@ -143,45 +173,51 @@ public class AudioRecorderManager {
         }
     }
 
-    private void handleSpeechOnset() {
+    private void handleSpeechOnset(int sessionId) {
+        if (sessionId != sessionEpoch.get() || !isRecording) {
+            return;
+        }
         isSpeechActive.set(true);
-        Log.i(TAG, "Speech onset: activating SwiftKey speaking state & Lottie animation");
+        Log.i(TAG, "Speech onset: activating SwiftKey speaking state & Lottie animation [session " + sessionId + "]");
 
-        // Notify SwiftKey to start Lottie waveform wave animation (VOICE_TALK)
-        if (currentListener != null) {
+        final RecognitionListener listener = currentListener;
+        if (listener != null) {
             mainHandler.post(() -> {
-                if (currentListener != null && isRecording) {
-                    currentListener.onBeginningOfSpeech();
+                if (sessionId == sessionEpoch.get() && isRecording && currentListener == listener) {
+                    listener.onBeginningOfSpeech();
                 }
             });
         }
 
-        // Initialize sentence buffer with pre-roll audio (to prevent clipping start consonants)
         synchronized (pcmLock) {
-            currentSentencePcm.reset();
-            byte[] preRoll = vad.getPreRollBytes();
-            if (preRoll != null && preRoll.length > 0) {
-                currentSentencePcm.write(preRoll, 0, preRoll.length);
+            if (currentSentencePcm != null) {
+                currentSentencePcm.reset();
+                byte[] preRoll = vad.getPreRollBytes();
+                if (preRoll != null && preRoll.length > 0) {
+                    currentSentencePcm.write(preRoll, 0, preRoll.length);
+                }
             }
         }
 
-        // Start periodic partial transcription if streaming is enabled
         if (currentConfig != null && currentConfig.isStreamingEnabled()) {
-            startPartialScheduler();
+            startPartialScheduler(sessionId);
         }
     }
 
-    private void handleSpeechOffset() {
+    private void handleSpeechOffset(int sessionId) {
+        if (sessionId != sessionEpoch.get() || !isRecording) {
+            return;
+        }
         if (!isSpeechActive.compareAndSet(true, false)) {
             return;
         }
-        Log.i(TAG, "Speech offset: pausing speaking state & finalizing sentence segment");
+        Log.i(TAG, "Speech offset: pausing speaking state & finalizing sentence segment [session " + sessionId + "]");
 
-        // Notify SwiftKey to transition Lottie animation back to idle (VOICE_TALK_OUT -> Speak now)
-        if (currentListener != null) {
+        final RecognitionListener listener = currentListener;
+        if (listener != null) {
             mainHandler.post(() -> {
-                if (currentListener != null && isRecording) {
-                    currentListener.onEndOfSpeech();
+                if (sessionId == sessionEpoch.get() && isRecording && currentListener == listener) {
+                    listener.onEndOfSpeech();
                 }
             });
         }
@@ -189,7 +225,6 @@ public class AudioRecorderManager {
         stopPartialScheduler();
         WhisperClient.cancelPartialRequests();
 
-        // Extract captured sentence PCM
         byte[] pcmData;
         synchronized (pcmLock) {
             pcmData = currentSentencePcm != null ? currentSentencePcm.toByteArray() : new byte[0];
@@ -198,23 +233,28 @@ public class AudioRecorderManager {
             }
         }
 
-        // Minimum audio length guard: ~0.3s (4800 samples = 9600 bytes)
         if (pcmData.length < 9600) {
             Log.d(TAG, "Sentence audio too short (" + pcmData.length + " bytes), ignoring.");
             return;
         }
 
-        // Dispatch finalized sentence to Groq Whisper
-        segmentExecutor.execute(() -> processSentenceSegment(pcmData));
+        segmentExecutor.execute(() -> processSentenceSegment(sessionId, pcmData));
     }
 
-    private void processSentenceSegment(byte[] pcmData) {
+    private void processSentenceSegment(int sessionId, byte[] pcmData) {
+        if (sessionId != sessionEpoch.get() || !isRecording) {
+            return;
+        }
         byte[] wavBytes = WavWriter.pcmToWav(pcmData, SAMPLE_RATE, 1, 16);
-        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV)");
+        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV) [session " + sessionId + "]");
 
         WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
             @Override
             public void onSuccess(String text) {
+                if (sessionId != sessionEpoch.get() || !isRecording) {
+                    Log.d(TAG, "Segment transcription dropped because session changed/stopped [session " + sessionId + "]");
+                    return;
+                }
                 if (text == null || text.trim().isEmpty()) {
                     Log.d(TAG, "Whisper returned empty segment text");
                     return;
@@ -222,23 +262,21 @@ public class AudioRecorderManager {
 
                 Log.i(TAG, "Segment transcription committed: " + text);
 
-                // Update rolling context history for next sentences
                 if (currentConfig != null) {
                     currentConfig.appendContextText(text);
                 }
 
-                if (currentCallback != null) {
-                    currentCallback.onResult(text);
+                final ResultCallback callback = currentCallback;
+                if (callback != null) {
+                    callback.onResult(text);
                 }
 
-                // Deliver as finalized segment to SwiftKey
-                // final_result = true triggers y0 (VoiceTypingSegmentCompleted)
-                // SwiftKey commits text permanently with commitText() and KEEPS SESSION ALIVE!
-                if (currentListener != null) {
+                final RecognitionListener listener = currentListener;
+                if (listener != null) {
                     mainHandler.post(() -> {
-                        if (currentListener != null && isRecording) {
+                        if (sessionId == sessionEpoch.get() && currentListener == listener && isRecording) {
                             Bundle bundle = createResultsBundle(text, true);
-                            currentListener.onPartialResults(bundle);
+                            listener.onPartialResults(bundle);
                         }
                     });
                 }
@@ -251,12 +289,12 @@ public class AudioRecorderManager {
         });
     }
 
-    private void startPartialScheduler() {
+    private void startPartialScheduler(int sessionId) {
         stopPartialScheduler();
         int interval = currentConfig != null ? currentConfig.getPartialIntervalMs() : 1000;
 
         partialTaskFuture = partialScheduler.scheduleWithFixedDelay(() -> {
-            if (!isRecording || !isSpeechActive.get()) {
+            if (sessionId != sessionEpoch.get() || !isRecording || !isSpeechActive.get()) {
                 return;
             }
 
@@ -265,7 +303,6 @@ public class AudioRecorderManager {
                 snapshot = currentSentencePcm != null ? currentSentencePcm.toByteArray() : new byte[0];
             }
 
-            // Only transcribe partial if we have at least 0.5s of speech
             if (snapshot.length < 16000) {
                 return;
             }
@@ -274,18 +311,16 @@ public class AudioRecorderManager {
             WhisperClient.transcribePartial(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
                 @Override
                 public void onSuccess(String text) {
-                    if (text == null || text.trim().isEmpty() || !isSpeechActive.get() || !isRecording) {
+                    if (sessionId != sessionEpoch.get() || text == null || text.trim().isEmpty() || !isSpeechActive.get() || !isRecording) {
                         return;
                     }
 
-                    // Deliver live partial text to SwiftKey
-                    // final_result = false triggers p0 (VoiceTypingPartialFragment)
-                    // SwiftKey writes text in real time with setComposingText()!
-                    if (currentListener != null) {
+                    final RecognitionListener listener = currentListener;
+                    if (listener != null) {
                         mainHandler.post(() -> {
-                            if (currentListener != null && isRecording && isSpeechActive.get()) {
+                            if (sessionId == sessionEpoch.get() && currentListener == listener && isRecording && isSpeechActive.get()) {
                                 Bundle bundle = createResultsBundle(text, false);
-                                currentListener.onPartialResults(bundle);
+                                listener.onPartialResults(bundle);
                             }
                         });
                     }
@@ -310,13 +345,25 @@ public class AudioRecorderManager {
         if (!isRecording) {
             return;
         }
+        final int sessionId = sessionEpoch.get();
         isRecording = false;
-        Log.i(TAG, "stopListening requested by user/SwiftKey: finalizing session");
+        isSpeechActive.set(false);
+        Log.i(TAG, "stopListening requested: finalizing session " + sessionId);
+
+        if (appContext != null) {
+            EarconPlayer.getInstance(appContext).playSuccess();
+        }
+
+        if (sessionTimeoutRunnable != null) {
+            mainHandler.removeCallbacks(sessionTimeoutRunnable);
+            sessionTimeoutRunnable = null;
+        }
 
         stopPartialScheduler();
         WhisperClient.cancelPartialRequests();
 
         try {
+            effectsHelper.release();
             if (audioRecord != null) {
                 audioRecord.stop();
                 audioRecord.release();
@@ -338,39 +385,57 @@ public class AudioRecorderManager {
             WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
                 @Override
                 public void onSuccess(String text) {
-                    deliverFinalResults(text);
+                    deliverFinalResults(sessionId, text);
                 }
 
                 @Override
                 public void onError(String errorMessage) {
-                    deliverFinalResults("");
+                    deliverFinalResults(sessionId, "");
                 }
             });
         } else {
-            deliverFinalResults("");
+            deliverFinalResults(sessionId, "");
         }
     }
 
-    private void deliverFinalResults(String text) {
-        if (currentListener != null) {
+    private void deliverFinalResults(int sessionId, String text) {
+        if (sessionId != sessionEpoch.get()) {
+            Log.d(TAG, "deliverFinalResults dropped for stale session " + sessionId);
+            return;
+        }
+        final RecognitionListener listener = currentListener;
+        if (listener != null) {
             mainHandler.post(() -> {
-                if (currentListener != null) {
+                if (sessionId == sessionEpoch.get() && currentListener == listener) {
                     Bundle finalBundle = createResultsBundle(text != null ? text : "", true);
                     // onResults unconditionally terminates SwiftKey session (o0)
-                    currentListener.onResults(finalBundle);
+                    listener.onResults(finalBundle);
                 }
             });
         }
     }
 
     public synchronized void cancel() {
+        boolean wasRecording = isRecording;
+        sessionEpoch.incrementAndGet();
         isRecording = false;
         isSpeechActive.set(false);
+
+        if (wasRecording && appContext != null) {
+            EarconPlayer.getInstance(appContext).playSuccess();
+        }
+
+        if (sessionTimeoutRunnable != null) {
+            mainHandler.removeCallbacks(sessionTimeoutRunnable);
+            sessionTimeoutRunnable = null;
+        }
         mainHandler.removeCallbacksAndMessages(null);
+
         stopPartialScheduler();
-        WhisperClient.cancelPartialRequests();
+        WhisperClient.cancelAllRequests();
 
         try {
+            effectsHelper.release();
             if (audioRecord != null) {
                 audioRecord.stop();
                 audioRecord.release();
@@ -381,7 +446,10 @@ public class AudioRecorderManager {
         synchronized (pcmLock) {
             currentSentencePcm = null;
         }
-        Log.i(TAG, "Audio recording cancelled");
+
+        currentListener = null;
+        currentCallback = null;
+        Log.i(TAG, "Audio recording cancelled and cleaned up");
     }
 
     private Bundle createResultsBundle(String text, boolean isFinal) {
@@ -398,18 +466,25 @@ public class AudioRecorderManager {
 
     private class RecordingRunnable implements Runnable {
         private final int bufferSize;
+        private final int sessionId;
+        private volatile boolean bufferReceivedSent = false;
 
-        RecordingRunnable(int bufferSize) {
+        RecordingRunnable(int bufferSize, int sessionId) {
             this.bufferSize = bufferSize;
+            this.sessionId = sessionId;
         }
 
         @Override
         public void run() {
             byte[] buffer = new byte[bufferSize];
 
-            while (isRecording) {
+            while (isRecording && sessionId == sessionEpoch.get()) {
                 int read = audioRecord != null ? audioRecord.read(buffer, 0, buffer.length) : -1;
                 if (read > 0) {
+                    if (sessionId != sessionEpoch.get() || !isRecording) {
+                        break;
+                    }
+
                     // Send to VAD engine
                     if (vad != null) {
                         vad.processBuffer(buffer, 0, read);
@@ -424,13 +499,17 @@ public class AudioRecorderManager {
                         }
                     }
 
-                    // Forward buffer event to SwiftKey to mark receivedAudioData = true
-                    if (currentListener != null) {
-                        final byte[] copy = new byte[read];
-                        System.arraycopy(buffer, 0, copy, 0, read);
+                    // Forward buffer event to SwiftKey ONCE to mark receivedAudioData = true
+                    // SwiftKey only uses this to set f43337c = true for telemetry.
+                    // Emitting on every read was flooding the main looper with 20 byte[] allocations/sec.
+                    if (!bufferReceivedSent && currentListener != null) {
+                        bufferReceivedSent = true;
+                        final RecognitionListener listener = currentListener;
+                        final byte[] copy = new byte[Math.min(read, 320)];
+                        System.arraycopy(buffer, 0, copy, 0, copy.length);
                         mainHandler.post(() -> {
-                            if (isRecording && currentListener != null) {
-                                currentListener.onBufferReceived(copy);
+                            if (sessionId == sessionEpoch.get() && currentListener == listener) {
+                                listener.onBufferReceived(copy);
                             }
                         });
                     }

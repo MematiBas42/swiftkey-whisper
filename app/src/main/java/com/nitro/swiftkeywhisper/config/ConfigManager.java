@@ -26,6 +26,7 @@ public class ConfigManager {
     public static final String KEY_PARTIAL_INTERVAL_MS = "partial_interval_ms";
     public static final String KEY_AUTO_LANGUAGE = "auto_language";
     public static final String KEY_DIRECT_INJECTION = "direct_injection";
+    public static final String KEY_SOUND_EFFECTS_ENABLED = "sound_effects_enabled";
 
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     public static final String DEFAULT_MODEL = "whisper-large-v3";
@@ -36,6 +37,7 @@ public class ConfigManager {
     public static final int DEFAULT_PARTIAL_INTERVAL_MS = 1000;
     public static final boolean DEFAULT_AUTO_LANGUAGE = true;
     public static final boolean DEFAULT_DIRECT_INJECTION = false; // SwiftKey native Fluency Engine handles auto-caps, auto-spacing and model learning
+    public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
 
     private String apiKey = "";
     private String endpoint = DEFAULT_ENDPOINT;
@@ -47,6 +49,7 @@ public class ConfigManager {
     private int partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
     private boolean autoLanguage = DEFAULT_AUTO_LANGUAGE;
     private boolean directInjection = DEFAULT_DIRECT_INJECTION;
+    private boolean soundEffectsEnabled = DEFAULT_SOUND_EFFECTS_ENABLED;
 
     // Rolling context history for Whisper prompt chaining (~150 words)
     private final LinkedList<String> recentWords = new LinkedList<>();
@@ -76,6 +79,7 @@ public class ConfigManager {
                 this.partialIntervalMs = prefs.getInt(KEY_PARTIAL_INTERVAL_MS, DEFAULT_PARTIAL_INTERVAL_MS);
                 this.autoLanguage = prefs.getBoolean(KEY_AUTO_LANGUAGE, DEFAULT_AUTO_LANGUAGE);
                 this.directInjection = prefs.getBoolean(KEY_DIRECT_INJECTION, DEFAULT_DIRECT_INJECTION);
+                this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
 
                 if (!this.apiKey.isEmpty()) {
                     return;
@@ -108,6 +112,7 @@ public class ConfigManager {
                 this.partialIntervalMs = json.optInt(KEY_PARTIAL_INTERVAL_MS, this.partialIntervalMs);
                 this.autoLanguage = json.optBoolean(KEY_AUTO_LANGUAGE, this.autoLanguage);
                 this.directInjection = json.optBoolean(KEY_DIRECT_INJECTION, this.directInjection);
+                this.soundEffectsEnabled = json.optBoolean(KEY_SOUND_EFFECTS_ENABLED, this.soundEffectsEnabled);
                 Log.i(TAG, "Loaded config from " + CONFIG_FILE_PATH);
             }
         } catch (Throwable t) {
@@ -130,6 +135,7 @@ public class ConfigManager {
                         .putInt(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs)
                         .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
                         .putBoolean(KEY_DIRECT_INJECTION, directInjection)
+                        .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
                         .apply();
             } catch (Throwable t) {
                 Log.e(TAG, "Error saving SharedPreferences", t);
@@ -148,6 +154,7 @@ public class ConfigManager {
             json.put(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs);
             json.put(KEY_AUTO_LANGUAGE, autoLanguage);
             json.put(KEY_DIRECT_INJECTION, directInjection);
+            json.put(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled);
 
             File file = new File(CONFIG_FILE_PATH);
             FileOutputStream fos = new FileOutputStream(file);
@@ -220,4 +227,7 @@ public class ConfigManager {
 
     public boolean isDirectInjection() { return directInjection; }
     public void setDirectInjection(boolean directInjection) { this.directInjection = directInjection; }
+
+    public boolean isSoundEffectsEnabled() { return soundEffectsEnabled; }
+    public void setSoundEffectsEnabled(boolean soundEffectsEnabled) { this.soundEffectsEnabled = soundEffectsEnabled; }
 }

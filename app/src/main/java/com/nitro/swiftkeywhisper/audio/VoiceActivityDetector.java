@@ -30,6 +30,7 @@ public class VoiceActivityDetector {
     // Calibration & Debounce parameters
     private static final int INITIAL_CALIBRATION_FRAMES = 8; // ~240ms initial noise floor calibration
     private static final int MIN_SPEECH_FRAMES = 3; // ~90ms debounce to prevent clicks/pops from triggering wave
+    private static final int MIN_SPEECH_ZCR = 8; // ~260Hz boundary: below this is pure monotonous mechanical hum
     private int processedFrames = 0;
 
     // VAD State
@@ -63,12 +64,22 @@ public class VoiceActivityDetector {
     }
 
     private void processFrame(byte[] frame, int offset, int length) {
-        // Calculate RMS of frame
+        // Calculate RMS and Zero-Crossing Rate (ZCR) of frame
         long sum = 0;
+        int zcrCount = 0;
+        short prevSample = 0;
         int sampleCount = length / 2;
+
         for (int i = 0; i < length - 1; i += 2) {
             short sample = (short) ((frame[offset + i] & 0xFF) | (frame[offset + i + 1] << 8));
             sum += (long) sample * sample;
+
+            if (i > 0) {
+                if ((prevSample >= 0 && sample < 0) || (prevSample < 0 && sample >= 0)) {
+                    zcrCount++;
+                }
+            }
+            prevSample = sample;
         }
 
         double mean = (double) sum / (sampleCount > 0 ? sampleCount : 1);
@@ -87,9 +98,13 @@ public class VoiceActivityDetector {
             return;
         }
 
-        // Adaptive noise floor tracking
+        // Monotonous low-frequency mechanical rumble (AC, fan, engine hum < ~130-260Hz)
+        boolean isMechanicalHum = (zcrCount < MIN_SPEECH_ZCR);
+
+        // Adaptive noise floor tracking:
+        // Allows steady mechanical hums up to 55 dB to be absorbed into the noise floor
         if (!isSpeaking) {
-            if (frameDb < noiseFloorDb + 8.0f) {
+            if (frameDb < noiseFloorDb + 8.0f || (isMechanicalHum && frameDb <= 55.0f)) {
                 noiseFloorDb = Math.max(20.0f, Math.min(55.0f, noiseFloorDb * 0.98f + frameDb * 0.02f));
             }
         }
@@ -97,18 +112,25 @@ public class VoiceActivityDetector {
         float speechThresholdDb = Math.max(46.0f, noiseFloorDb + 10.0f);
         float silenceThresholdDb = Math.max(40.0f, noiseFloorDb + 5.0f);
 
-        if (frameDb >= speechThresholdDb) {
+        // Soft ZCR guard:
+        // Pure monotonous mechanical hum cannot trigger speech onset from silence.
+        // Once speech is active (isSpeaking == true), ZCR is never used to cut speech,
+        // strictly preserving deep male resonant vowels and trailing phonemes.
+        boolean meetsSpeechEnergy = (frameDb >= speechThresholdDb);
+        boolean validSpeechFrame = meetsSpeechEnergy && (isSpeaking || !isMechanicalHum);
+
+        if (validSpeechFrame) {
             consecutiveSpeechFrames++;
             silenceDurationMs = 0;
 
             if (consecutiveSpeechFrames >= MIN_SPEECH_FRAMES && !isSpeaking) {
                 isSpeaking = true;
-                Log.d(TAG, "Speech onset detected (" + frameDb + " dB, noise: " + noiseFloorDb + " dB)");
+                Log.d(TAG, "Speech onset detected (" + frameDb + " dB, noise: " + noiseFloorDb + " dB, zcr: " + zcrCount + ")");
                 if (listener != null) {
                     listener.onSpeechStart();
                 }
             }
-        } else if (frameDb < silenceThresholdDb) {
+        } else if (frameDb < silenceThresholdDb || (!isSpeaking && isMechanicalHum)) {
             consecutiveSpeechFrames = 0;
 
             if (isSpeaking) {
@@ -126,6 +148,8 @@ public class VoiceActivityDetector {
             // In-between hysteresis zone
             if (isSpeaking) {
                 silenceDurationMs += (FRAME_DURATION_MS / 2);
+            } else {
+                consecutiveSpeechFrames = 0;
             }
         }
     }
