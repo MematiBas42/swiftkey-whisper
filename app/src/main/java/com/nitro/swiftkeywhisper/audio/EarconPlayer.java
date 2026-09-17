@@ -103,8 +103,8 @@ public class EarconPlayer {
             }
         } catch (Throwable ignored) {}
 
-        // 2. Extract directly from module APK via MainHook.MODULE_PATH
-        String apkPath = MainHook.MODULE_PATH;
+        // 2. Extract directly from module APK via MainHook.getModuleApkPath()
+        String apkPath = MainHook.getModuleApkPath();
         if (apkPath == null) {
             // Search /data/app/ for module APK as fallback
             try {

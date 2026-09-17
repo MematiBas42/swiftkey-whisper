@@ -58,9 +58,9 @@ public class MainActivity extends AppCompatActivity {
     private static final String PROMPT_BILINGUAL =
             "Turkish and English mixed speech transcription. Maintain code-switching accuracy, technical terminology, and proper capitalization in both Turkish and English seamlessly.";
 
-    // Hooked by LSPosed when module is active
+    // Module status check via modern LibXposed XposedService
     public static boolean isModuleActive() {
-        return false;
+        return com.nitro.swiftkeywhisper.App.isModuleActive();
     }
 
     // Header & Status

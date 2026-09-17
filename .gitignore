@@ -13,3 +13,4 @@ build/
 *.jks
 *.keystore
 release-keystore.jks
+lsposed-docs/

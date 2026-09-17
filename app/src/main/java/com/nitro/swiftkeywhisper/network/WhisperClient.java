@@ -95,8 +95,8 @@ public class WhisperClient {
     }
 
     private static void transcribeInternal(byte[] wavBytes, ConfigManager config, String dynamicLang, String requestTag, TranscriptionCallback callback) {
-        String apiKey = config.getApiKey();
-        if (apiKey == null || apiKey.trim().isEmpty()) {
+        String apiKey = ConfigManager.sanitizeApiKey(config != null ? config.getApiKey() : null);
+        if (apiKey.isEmpty()) {
             callback.onError("API Key is not configured in SwiftKey Whisper app.");
             return;
         }
@@ -260,14 +260,15 @@ public class WhisperClient {
         return cleaned;
     }
     public static void fetchAvailableModels(String apiKey, ModelsCallback callback) {
-        if (apiKey == null || apiKey.trim().isEmpty()) {
-            callback.onError("API Anahtarı girilmedi.");
+        String cleanKey = ConfigManager.sanitizeApiKey(apiKey);
+        if (cleanKey.isEmpty()) {
+            callback.onError("API Key is not configured.");
             return;
         }
 
         Request request = new Request.Builder()
                 .url("https://api.groq.com/openai/v1/models")
-                .addHeader("Authorization", "Bearer " + apiKey.trim())
+                .addHeader("Authorization", "Bearer " + cleanKey)
                 .addHeader("User-Agent", "Mozilla/5.0")
                 .get()
                 .build();

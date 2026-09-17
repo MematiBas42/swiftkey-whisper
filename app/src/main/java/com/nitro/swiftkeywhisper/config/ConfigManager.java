@@ -82,26 +82,37 @@ public class ConfigManager {
         return instance;
     }
 
-    @SuppressWarnings("deprecation")
     public static SharedPreferences getSharedPreferences(Context context) {
         if (context == null) {
             return null;
         }
-        try {
-            return context.getSharedPreferences(PREFS_NAME, Context.MODE_WORLD_READABLE);
-        } catch (SecurityException se) {
-            Log.w(TAG, "MODE_WORLD_READABLE not permitted, falling back to MODE_PRIVATE: " + se.getMessage());
-            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        } catch (Throwable t) {
-            Log.e(TAG, "Failed to get SharedPreferences: " + t.getMessage(), t);
-            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+    }
+
+    public static String sanitizeApiKey(String key) {
+        if (key == null) return "";
+        String trimmed = key.replaceAll("[\\r\\n\\t ]+", "").trim();
+        int gskIndex = trimmed.indexOf("gsk_");
+        if (gskIndex != -1) {
+            String sub = trimmed.substring(gskIndex);
+            int end = 0;
+            while (end < sub.length()) {
+                char c = sub.charAt(end);
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+                    end++;
+                } else {
+                    break;
+                }
+            }
+            return sub.substring(0, end);
         }
+        return trimmed;
     }
 
     public synchronized void loadFromPreferences(SharedPreferences prefs) {
         if (prefs == null) return;
         try {
-            this.apiKey = prefs.getString(KEY_API_KEY, this.apiKey != null ? this.apiKey : "");
+            this.apiKey = sanitizeApiKey(prefs.getString(KEY_API_KEY, this.apiKey != null ? this.apiKey : ""));
             this.endpoint = prefs.getString(KEY_ENDPOINT, DEFAULT_ENDPOINT);
             this.model = prefs.getString(KEY_MODEL, DEFAULT_MODEL);
             this.language = prefs.getString(KEY_LANGUAGE, DEFAULT_LANGUAGE);
@@ -126,42 +137,46 @@ public class ConfigManager {
         }
     }
 
+    public synchronized void saveToSharedPreferences(SharedPreferences prefs) {
+        if (prefs == null) return;
+        prefs.edit()
+                .putString(KEY_API_KEY, apiKey)
+                .putString(KEY_ENDPOINT, endpoint)
+                .putString(KEY_MODEL, model)
+                .putString(KEY_LANGUAGE, language)
+                .putString(KEY_PROMPT, prompt)
+                .putInt(KEY_SILENCE_TIMEOUT_MS, silenceTimeoutMs)
+                .putBoolean(KEY_STREAMING_ENABLED, streamingEnabled)
+                .putInt(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs)
+                .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
+                .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
+                .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
+                .apply();
+    }
+
     public synchronized void save(Context context) {
         if (context == null) return;
         try {
             SharedPreferences prefs = getSharedPreferences(context);
             if (prefs != null) {
-                prefs.edit()
-                        .putString(KEY_API_KEY, apiKey)
-                        .putString(KEY_ENDPOINT, endpoint)
-                        .putString(KEY_MODEL, model)
-                        .putString(KEY_LANGUAGE, language)
-                        .putString(KEY_PROMPT, prompt)
-                        .putInt(KEY_SILENCE_TIMEOUT_MS, silenceTimeoutMs)
-                        .putBoolean(KEY_STREAMING_ENABLED, streamingEnabled)
-                        .putInt(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs)
-                        .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
-                        .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
-                        .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
-                        .commit();
+                saveToSharedPreferences(prefs);
+                Log.i(TAG, "Saved local private preferences to " + PREFS_NAME);
             }
-
-            try {
-                File dataDir = new File(context.getApplicationInfo().dataDir);
-                File prefsDir = new File(dataDir, "shared_prefs");
-                File prefsFile = new File(prefsDir, PREFS_NAME + ".xml");
-                if (prefsDir.exists()) {
-                    prefsDir.setReadable(true, false);
-                    prefsDir.setExecutable(true, false);
-                }
-                if (prefsFile.exists()) {
-                    prefsFile.setReadable(true, false);
-                }
-            } catch (Throwable ignored) {}
-
-            Log.i(TAG, "Saved preferences to " + PREFS_NAME);
         } catch (Throwable t) {
-            Log.e(TAG, "Error saving SharedPreferences", t);
+            Log.e(TAG, "Error saving local SharedPreferences", t);
+        }
+
+        try {
+            io.github.libxposed.service.XposedService svc = com.nitro.swiftkeywhisper.App.getService();
+            if (svc != null) {
+                SharedPreferences remotePrefs = svc.getRemotePreferences(PREFS_NAME);
+                if (remotePrefs != null) {
+                    saveToSharedPreferences(remotePrefs);
+                    Log.i(TAG, "Saved remote preferences to LSPosed daemon: " + PREFS_NAME);
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "RemotePreferences not available or not bound: " + t.getMessage());
         }
     }
 
@@ -196,7 +211,7 @@ public class ConfigManager {
 
     // Getters and Setters
     public String getApiKey() { return apiKey; }
-    public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    public void setApiKey(String apiKey) { this.apiKey = sanitizeApiKey(apiKey); }
 
     public String getEndpoint() { return endpoint; }
     public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
