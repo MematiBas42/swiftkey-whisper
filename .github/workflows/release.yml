@@ -51,36 +51,40 @@ jobs:
         run: |
           rm -f keystore.jks
 
-      - name: Rename APK Asset
+      - name: Prepare APK Assets
         id: prepare_asset
         run: |
           TAG="${{ github.ref_name }}"
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.tag_name }}" ]; then
             TAG="${{ github.event.inputs.tag_name }}"
           fi
-          OUTPUT_NAME="SwiftKeyWhisper-${TAG}.apk"
-          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
-          if [ -z "$APK_PATH" ]; then
-            echo "Error: No release APK found!"
-            exit 1
-          fi
-          echo "Found APK at: $APK_PATH"
-          cp "$APK_PATH" "${OUTPUT_NAME}"
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-          echo "asset=${OUTPUT_NAME}" >> $GITHUB_OUTPUT
 
-      - name: Upload APK Artifact
+          mkdir -p release_assets
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            APK_PATH=$(find app/build/outputs/apk/release -name "*${ABI}*.apk" | head -n 1)
+            if [ -n "$APK_PATH" ]; then
+              TARGET="release_assets/SwiftKeyWhisper-${TAG}-${ABI}.apk"
+              echo "Packaging $ABI: $APK_PATH -> $TARGET"
+              cp "$APK_PATH" "$TARGET"
+            else
+              echo "Warning: No APK found for $ABI"
+            fi
+          done
+
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Upload APK Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: SwiftKeyWhisper-Signed
-          path: ${{ steps.prepare_asset.outputs.asset }}
+          path: release_assets/*.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.prepare_asset.outputs.tag }}
           name: "SwiftKeyWhisper Release ${{ steps.prepare_asset.outputs.tag }}"
-          files: ${{ steps.prepare_asset.outputs.asset }}
+          files: release_assets/*.apk
           generate_release_notes: true
           draft: false
           prerelease: false
