@@ -315,6 +315,10 @@ public class AudioRecorderManager {
         byte[] wavBytes = WavWriter.pcmToWav(cleanPcm, SAMPLE_RATE, 1, 16);
         Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV, trimmed " + (pcmData.length - cleanPcm.length) + " silence bytes) [session " + sessionId + ", utterance " + utteranceId + "]");
 
+        final int[] retryAttempts = new int[]{0};
+        final int MAX_SEGMENT_RETRIES = 3;
+        final int RETRY_DELAY_MS = 1100;
+
         WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
             @Override
             public void onSuccess(String text) {
@@ -347,13 +351,14 @@ public class AudioRecorderManager {
             @Override
             public void onError(String errorMessage) {
                 Log.e(TAG, "Segment transcription error: " + errorMessage);
-                if (errorMessage != null && errorMessage.contains("Rate limit")) {
-                    Log.w(TAG, "Segment transcription hit rate limit, retrying in 2000ms [session " + sessionId + ", utterance " + utteranceId + "]");
+                if (errorMessage != null && errorMessage.contains("Rate limit") && retryAttempts[0] < MAX_SEGMENT_RETRIES) {
+                    retryAttempts[0]++;
+                    Log.w(TAG, "Segment transcription hit rate limit, retry attempt " + retryAttempts[0] + "/" + MAX_SEGMENT_RETRIES + " in " + RETRY_DELAY_MS + "ms [session " + sessionId + ", utterance " + utteranceId + "]");
                     mainHandler.postDelayed(() -> {
                         if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get()) {
                             WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, this);
                         }
-                    }, 2000);
+                    }, RETRY_DELAY_MS);
                 }
             }
         });
