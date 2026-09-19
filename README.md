@@ -68,9 +68,9 @@ Instead of treating voice input as a separate detached keyboard overlay, SwiftKe
 </td>
 <td width="50%">
 
-### 🎛️ Hybrid VAD with Soft ZCR
-* **Zero-Crossing Rate (ZCR) Filtering:** Distinguishes monotonic low-frequency mechanical rumble (air conditioners, fans, engine hum) from resonant vocal formants.
-* **Deep Vowel Protection:** Guarantees speech continuity without clipping deep male voices or prolonged vowels.
+### 🧠 On-Device Silero VAD (Deep Neural Network)
+* **Deep Neural Network Voice Activity Detection:** Powered by Microsoft ONNX Runtime Mobile and Silero VAD DNN. Distinguishes human speech from ambient traffic, cafe chatter, and background noise with >99% accuracy.
+* **Pre-Warmed 0ms Singleton:** Model is pre-warmed in memory upon IME launch, eliminating cold-start delay for instant mic response.
 
 </td>
 </tr>
@@ -83,9 +83,9 @@ Instead of treating voice input as a separate detached keyboard overlay, SwiftKe
 </td>
 <td width="50%">
 
-### 🔔 Native Dictation Earcons
-* **Authentic Audio Cues:** Includes original 16 kHz PCM start/stop acoustic earcons powered by `SoundPool`.
-* **Ringer-Aware:** Automatically respects Android system silent and vibration profiles.
+### 🔔 Native Dictation Earcons & Volume Control
+* **Authentic Audio Cues:** Includes original start/stop acoustic earcons powered by `SoundPool` with customizable volume (0-100%).
+* **Ringer-Aware:** Strictly respects Android system silent and vibration profiles (`USAGE_ASSISTANCE_SONIFICATION`).
 
 </td>
 </tr>
@@ -113,7 +113,7 @@ flowchart TD
     subgraph AudioEngine ["Native Audio Engine"]
         AR["AudioRecord (16kHz Mono)<br/>AudioSource.VOICE_RECOGNITION"]
         DSP["Hardware Beamforming & AudioFX<br/>(NoiseSuppressor + AGC)"]
-        VAD["VoiceActivityDetector<br/>(Adaptive Energy + Soft ZCR)"]
+        VAD["VoiceActivityDetector<br/>(Silero VAD DNN - ONNX Runtime)"]
         Earcon["EarconPlayer (SoundPool)"]
     end
 
@@ -174,13 +174,15 @@ SwiftKeyWhisper provides a Material 3 companion interface and a direct JSON conf
 | **Model** | `model` | `whisper-large-v3` | Groq Whisper model endpoint. |
 | **Language** | `language` | `en` | Fallback language code (`en`, `tr`, etc.). Supports auto-detection. |
 | **Auto Language** | `auto_language` | `true` | Matches keyboard's active input language dynamically. |
-| **Silence Timeout** | `silence_timeout_ms` | `750 ms` | Duration of silence before finalizing sentence segment. |
+| **Prompt / Context** | `prompt` | `""` | Initial prompt for Whisper context and vocabulary steering. |
+| **Silence Timeout** | `silence_timeout_ms` | `750 ms` | Duration of silence before finalizing sentence segment via Silero VAD. |
 | **Auto Stop Timeout** | `auto_stop_timeout_ms` | `1500 ms` | Duration of silence before automatically ending session to static mic (0 to disable / continuous). |
 | **Live Streaming** | `streaming_enabled` | `true` | Enables real-time partial word streaming while speaking. |
 | **Partial Interval** | `partial_interval_ms`| `1000 ms` | Frequency of intermediate streaming requests. |
 | **Sound Effects** | `sound_effects_enabled` | `true` | Plays low-latency start/stop dictation earcons. |
+| **Earcon Volume** | `earcon_volume` | `100%` | Relative volume slider (0-100%) for acoustic cues, respecting ringer mode. |
 
-> **Cross-Process Storage:** Settings are securely stored in module preferences and synchronized in real-time across process boundaries with microsecond latency using LSPosed `XSharedPreferences`. All preferences and credentials are automatically purged by Android when the app is uninstalled.
+> **Cross-Process Storage:** Settings are securely stored in module preferences and synchronized in real-time across process boundaries with microsecond latency using modern LibXposed `RemotePreferences`. All preferences and credentials are automatically purged by Android when the app is uninstalled.
 
 ---
 
