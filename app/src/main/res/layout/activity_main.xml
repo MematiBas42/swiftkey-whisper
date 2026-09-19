@@ -259,6 +259,39 @@
 
                     <!-- SWITCHES -->
                     <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/swSoundEffects"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Earcon Sound Notifications"
+                        android:textColor="@color/cyber_text_primary"
+                        android:checked="true"
+                        app:thumbTint="@color/neon_cyan"
+                        app:trackTint="@color/neon_cyan_glow" />
+
+                    <!-- EARCON VOLUME SLIDER -->
+                    <TextView
+                        android:id="@+id/tvEarconVolumeLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sound Volume: 100%"
+                        android:textColor="@color/cyber_text_primary"
+                        android:textSize="13sp"
+                        android:layout_marginTop="4dp" />
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderEarconVolume"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="0"
+                        android:valueTo="100"
+                        android:stepSize="5"
+                        android:value="100"
+                        app:thumbColor="@color/neon_cyan"
+                        app:trackColorActive="@color/neon_cyan"
+                        app:trackColorInactive="@color/cyber_surface_border"
+                        android:layout_marginBottom="8dp" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/swStreaming"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

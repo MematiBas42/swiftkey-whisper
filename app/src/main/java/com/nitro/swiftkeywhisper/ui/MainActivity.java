@@ -77,6 +77,9 @@ public class MainActivity extends AppCompatActivity {
     private Slider sliderSilence;
     private TextView tvAutoStopLabel;
     private Slider sliderAutoStop;
+    private SwitchMaterial swSoundEffects;
+    private TextView tvEarconVolumeLabel;
+    private Slider sliderEarconVolume;
     private SwitchMaterial swStreaming;
     private SwitchMaterial swAutoLanguage;
     private TextInputEditText etLanguage;
@@ -145,6 +148,9 @@ public class MainActivity extends AppCompatActivity {
         sliderSilence = findViewById(R.id.sliderSilence);
         tvAutoStopLabel = findViewById(R.id.tvAutoStopLabel);
         sliderAutoStop = findViewById(R.id.sliderAutoStop);
+        swSoundEffects = findViewById(R.id.swSoundEffects);
+        tvEarconVolumeLabel = findViewById(R.id.tvEarconVolumeLabel);
+        sliderEarconVolume = findViewById(R.id.sliderEarconVolume);
         swStreaming = findViewById(R.id.swStreaming);
         swAutoLanguage = findViewById(R.id.swAutoLanguage);
         etLanguage = findViewById(R.id.etLanguage);
@@ -193,6 +199,30 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 String profile = ms <= 1000 ? "(Ultra Fast)" : ms <= 2000 ? "(Recommended)" : "(Patient)";
                 tvAutoStopLabel.setText("Auto Stop Threshold: " + ms + " ms " + profile);
+            }
+        });
+
+        // Earcon Sound Notifications & Volume
+        swSoundEffects.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            sliderEarconVolume.setEnabled(isChecked);
+            tvEarconVolumeLabel.setAlpha(isChecked ? 1.0f : 0.5f);
+        });
+
+        sliderEarconVolume.addOnChangeListener((slider, value, fromUser) -> {
+            int vol = (int) value;
+            tvEarconVolumeLabel.setText("Sound Volume: " + vol + "%");
+        });
+
+        sliderEarconVolume.addOnSliderTouchListener(new com.google.android.material.slider.Slider.OnSliderTouchListener() {
+            @Override
+            public void onStartTrackingTouch(@NonNull com.google.android.material.slider.Slider slider) {}
+
+            @Override
+            public void onStopTrackingTouch(@NonNull com.google.android.material.slider.Slider slider) {
+                if (swSoundEffects.isChecked()) {
+                    config.setEarconVolume((int) slider.getValue());
+                    com.nitro.swiftkeywhisper.audio.EarconPlayer.getInstance(MainActivity.this).playSuccess();
+                }
             }
         });
 
@@ -310,6 +340,12 @@ public class MainActivity extends AppCompatActivity {
 
         swStreaming.setChecked(config.isStreamingEnabled());
         swAutoLanguage.setChecked(config.isAutoLanguage());
+        swSoundEffects.setChecked(config.isSoundEffectsEnabled());
+        int earconVol = config.getEarconVolume();
+        sliderEarconVolume.setValue(Math.max(0, Math.min(100, earconVol)));
+        sliderEarconVolume.setEnabled(config.isSoundEffectsEnabled());
+        tvEarconVolumeLabel.setText("Sound Volume: " + earconVol + "%");
+        tvEarconVolumeLabel.setAlpha(config.isSoundEffectsEnabled() ? 1.0f : 0.5f);
     }
 
     private void saveConfig() {
@@ -322,6 +358,8 @@ public class MainActivity extends AppCompatActivity {
         config.setAutoStopTimeoutMs((int) sliderAutoStop.getValue());
         config.setStreamingEnabled(swStreaming.isChecked());
         config.setAutoLanguage(swAutoLanguage.isChecked());
+        config.setSoundEffectsEnabled(swSoundEffects.isChecked());
+        config.setEarconVolume((int) sliderEarconVolume.getValue());
 
         config.save(this);
         Toast.makeText(this, "All settings saved and applied!", Toast.LENGTH_SHORT).show();

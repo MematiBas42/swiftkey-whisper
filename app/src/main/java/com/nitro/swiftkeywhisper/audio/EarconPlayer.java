@@ -245,8 +245,15 @@ public class EarconPlayer {
         }
 
         try {
-            soundPool.play(sampleId, 0.85f, 0.85f, 1, 0, 1.0f);
-            Log.d(TAG, "Played earcon sound: " + label);
+            float volume = 0.85f;
+            if (config != null) {
+                volume = Math.max(0.0f, Math.min(1.0f, config.getEarconVolume() / 100.0f));
+            }
+            if (volume <= 0.0f) {
+                return;
+            }
+            soundPool.play(sampleId, volume, volume, 1, 0, 1.0f);
+            Log.d(TAG, "Played earcon sound: " + label + " (vol: " + volume + ")");
         } catch (Throwable t) {
             Log.w(TAG, "Error playing earcon " + label + ": " + t.getMessage());
         }

@@ -22,6 +22,7 @@ public class ConfigManager {
     public static final String KEY_PARTIAL_INTERVAL_MS = "partial_interval_ms";
     public static final String KEY_AUTO_LANGUAGE = "auto_language";
     public static final String KEY_SOUND_EFFECTS_ENABLED = "sound_effects_enabled";
+    public static final String KEY_EARCON_VOLUME = "earcon_volume";
     public static final String KEY_AUTO_STOP_TIMEOUT_MS = "auto_stop_timeout_ms";
 
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -31,6 +32,7 @@ public class ConfigManager {
     public static final int DEFAULT_PARTIAL_INTERVAL_MS = 1000;
     public static final boolean DEFAULT_AUTO_LANGUAGE = true;
     public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
+    public static final int DEFAULT_EARCON_VOLUME = 100; // 0-100%
     public static final int DEFAULT_AUTO_STOP_TIMEOUT_MS = 1500; // 1.5s silence auto-terminates session to static mic
 
     public static String getDefaultSystemLanguage() {
@@ -66,6 +68,7 @@ public class ConfigManager {
     private int partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
     private boolean autoLanguage = DEFAULT_AUTO_LANGUAGE;
     private boolean soundEffectsEnabled = DEFAULT_SOUND_EFFECTS_ENABLED;
+    private int earconVolume = DEFAULT_EARCON_VOLUME;
     private int autoStopTimeoutMs = DEFAULT_AUTO_STOP_TIMEOUT_MS;
 
     // Rolling context history for Whisper prompt chaining (~150 words)
@@ -122,6 +125,7 @@ public class ConfigManager {
             this.partialIntervalMs = prefs.getInt(KEY_PARTIAL_INTERVAL_MS, DEFAULT_PARTIAL_INTERVAL_MS);
             this.autoLanguage = prefs.getBoolean(KEY_AUTO_LANGUAGE, DEFAULT_AUTO_LANGUAGE);
             this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
+            this.earconVolume = prefs.getInt(KEY_EARCON_VOLUME, DEFAULT_EARCON_VOLUME);
             this.autoStopTimeoutMs = prefs.getInt(KEY_AUTO_STOP_TIMEOUT_MS, DEFAULT_AUTO_STOP_TIMEOUT_MS);
         } catch (Throwable t) {
             Log.w(TAG, "Failed reading preferences: " + t.getMessage());
@@ -150,6 +154,7 @@ public class ConfigManager {
                 .putInt(KEY_PARTIAL_INTERVAL_MS, partialIntervalMs)
                 .putBoolean(KEY_AUTO_LANGUAGE, autoLanguage)
                 .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
+                .putInt(KEY_EARCON_VOLUME, earconVolume)
                 .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
                 .apply();
     }
@@ -239,6 +244,9 @@ public class ConfigManager {
 
     public boolean isSoundEffectsEnabled() { return soundEffectsEnabled; }
     public void setSoundEffectsEnabled(boolean soundEffectsEnabled) { this.soundEffectsEnabled = soundEffectsEnabled; }
+
+    public int getEarconVolume() { return earconVolume; }
+    public void setEarconVolume(int earconVolume) { this.earconVolume = Math.max(0, Math.min(100, earconVolume)); }
 
     public int getAutoStopTimeoutMs() { return autoStopTimeoutMs; }
     public void setAutoStopTimeoutMs(int autoStopTimeoutMs) { this.autoStopTimeoutMs = autoStopTimeoutMs; }
