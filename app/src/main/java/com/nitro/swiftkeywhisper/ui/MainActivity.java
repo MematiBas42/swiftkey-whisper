@@ -317,7 +317,7 @@ public class MainActivity extends AppCompatActivity {
         config.setModel(autoCompleteModel.getText() != null ? autoCompleteModel.getText().toString().trim() : ConfigManager.DEFAULT_MODEL);
         config.setEndpoint(etEndpoint.getText() != null ? etEndpoint.getText().toString().trim() : ConfigManager.DEFAULT_ENDPOINT);
         config.setLanguage(etLanguage.getText() != null ? etLanguage.getText().toString().trim() : ConfigManager.DEFAULT_LANGUAGE);
-        config.setPrompt(etPrompt.getText() != null ? etPrompt.getText().toString().trim() : ConfigManager.DEFAULT_PROMPT);
+        config.setPrompt(etPrompt.getText() != null ? etPrompt.getText().toString().trim() : "");
         config.setSilenceTimeoutMs((int) sliderSilence.getValue());
         config.setAutoStopTimeoutMs((int) sliderAutoStop.getValue());
         config.setStreamingEnabled(swStreaming.isChecked());

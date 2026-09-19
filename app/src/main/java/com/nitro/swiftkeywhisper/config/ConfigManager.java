@@ -54,13 +54,13 @@ public class ConfigManager {
     }
 
     public static final String DEFAULT_LANGUAGE = getDefaultSystemLanguage();
-    public static final String DEFAULT_PROMPT = getDefaultPromptForLanguage(DEFAULT_LANGUAGE);
+    public static final String DEFAULT_PROMPT = "";
 
     private String apiKey = "";
     private String endpoint = DEFAULT_ENDPOINT;
     private String model = DEFAULT_MODEL;
     private String language = getDefaultSystemLanguage();
-    private String prompt = getDefaultPromptForLanguage(language);
+    private String prompt = DEFAULT_PROMPT;
     private int silenceTimeoutMs = DEFAULT_SILENCE_TIMEOUT_MS;
     private boolean streamingEnabled = DEFAULT_STREAMING_ENABLED;
     private int partialIntervalMs = DEFAULT_PARTIAL_INTERVAL_MS;
