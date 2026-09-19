@@ -14,3 +14,6 @@ build/
 *.keystore
 release-keystore.jks
 lsposed-docs/
+.agents/
+.claude/
+skills-lock.json

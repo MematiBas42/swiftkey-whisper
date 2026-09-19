@@ -1,6 +1,25 @@
 package com.nitro.swiftkeywhisper.audio;
 
+import android.content.Context;
 import android.util.Log;
+
+import com.nitro.swiftkeywhisper.MainHook;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.nio.FloatBuffer;
+import java.nio.LongBuffer;
+import java.nio.file.Files;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
+
+import ai.onnxruntime.OnnxTensor;
+import ai.onnxruntime.OrtEnvironment;
+import ai.onnxruntime.OrtSession;
 
 public class VoiceActivityDetector {
     private static final String TAG = "SwiftKeyWhisperVAD";
@@ -11,186 +30,318 @@ public class VoiceActivityDetector {
     }
 
     private final VadListener listener;
+    private final Context hostContext;
     private int silenceTimeoutMs;
 
     // Audio parameters (16kHz 16-bit Mono)
     private static final int SAMPLE_RATE = 16000;
     private static final int BYTES_PER_SAMPLE = 2; // 16-bit
-    private static final int FRAME_DURATION_MS = 30; // 30ms per frame
-    private static final int FRAME_SAMPLES = (SAMPLE_RATE * FRAME_DURATION_MS) / 1000; // 480 samples
-    private static final int FRAME_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE; // 960 bytes
+    // Silero VAD requires 512 samples per frame at 16kHz (32ms)
+    private static final int FRAME_SAMPLES = 512;
+    private static final int FRAME_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE; // 1024 bytes
 
-    // Pre-roll buffer (250ms to preserve leading consonants)
+    // Pre-roll buffer (250ms to preserve leading consonants before speech onset)
     private static final int PRE_ROLL_MS = 250;
     private static final int PRE_ROLL_BYTES = (SAMPLE_RATE * PRE_ROLL_MS / 1000) * BYTES_PER_SAMPLE;
     private final byte[] preRollRingBuffer = new byte[PRE_ROLL_BYTES];
     private int preRollWriteIndex = 0;
     private boolean preRollFull = false;
 
-    // Calibration & Debounce parameters
-    private static final int INITIAL_CALIBRATION_FRAMES = 8; // ~240ms initial noise floor calibration
-    private static final int MIN_SPEECH_FRAMES = 3; // ~90ms debounce to prevent clicks/pops from triggering wave
-    private static final int MIN_SPEECH_ZCR = 8; // ~260Hz boundary: below this is pure monotonous mechanical hum
-    private static final float PRE_EMPHASIS_COEFF = 0.95f; // High-pass filter attenuates <150Hz rumble by >22dB
-    private static final float RELATIVE_FALLOFF_DB = 12.0f; // Drop from peak speech energy in noisy environments
-    private static final float PEAK_DECAY_PER_FRAME_DB = 0.04f; // ~1.3 dB/s slow peak decay
-    private static final int MAX_UTTERANCE_DURATION_MS = 15000; // 15s max continuous segment safety clamp
-    private int processedFrames = 0;
+    // Silero VAD Engine (Direct ONNX Runtime - Shared Singleton Session for 0ms Cold Start)
+    private static volatile OrtEnvironment sharedEnv;
+    private static volatile OrtSession sharedSession;
+    private static final Object INIT_LOCK = new Object();
 
-    // VAD State
+    private OrtEnvironment ortEnv;
+    private OrtSession ortSession;
+    private boolean isInitialized = false;
+
+    // Model Recurrent States (H and C states of LSTM)
+    private float[] h = new float[128]; // 2 * 1 * 64
+    private float[] c = new float[128]; // 2 * 1 * 64
+
+    // Frame buffer for 1024-byte slicing
+    private final byte[] frameBuffer = new byte[FRAME_BYTES];
+    private int frameBufferOffset = 0;
+
+    // Timing & Debounce parameters (calculated from milliseconds)
+    private static final int SPEECH_DEBOUNCE_MS = 180; // 180ms ~ 6 frames
+    private static final float CONFIDENCE_THRESHOLD = 0.85f; // Silero high-confidence speech threshold
+
+    private int maxSpeechFrames;
+    private int maxSilenceFrames;
+    private int speechFramesCount = 0;
+    private int silenceFramesCount = 0;
+
+    // State
     private boolean isSpeaking = false;
-    private int consecutiveSpeechFrames = 0;
-    private int silenceDurationMs = 0;
-    private float noiseFloorDb = 35.0f; // Initial estimate
-    private short prevRawSample = 0;
-    private float speechPeakDb = 0.0f;
-    private int utteranceDurationMs = 0;
 
-    public VoiceActivityDetector(int silenceTimeoutMs, VadListener listener) {
+    public VoiceActivityDetector(Context context, int silenceTimeoutMs, VadListener listener) {
+        this.hostContext = context;
         this.silenceTimeoutMs = Math.max(300, silenceTimeoutMs);
         this.listener = listener;
+
+        recalculateFrameCounts();
+        initModel();
     }
 
-    public void setSilenceTimeoutMs(int silenceTimeoutMs) {
-        this.silenceTimeoutMs = Math.max(300, silenceTimeoutMs);
+    private void recalculateFrameCounts() {
+        // Frame duration = 32ms (512 samples at 16kHz)
+        maxSpeechFrames = Math.max(1, SPEECH_DEBOUNCE_MS / 32);
+        maxSilenceFrames = Math.max(1, silenceTimeoutMs / 32);
+    }
+
+    private static byte[] loadModelBytes(Context context) {
+        // 1. Check if model file already extracted in host cache directory
+        if (context != null) {
+            try {
+                File cached = new File(context.getCacheDir(), "silero_vad.onnx");
+                if (cached.exists() && cached.length() > 1000000) {
+                    return Files.readAllBytes(cached.toPath());
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // 2. Extract directly from module APK via MainHook.getModuleApkPath()
+        String apkPath = MainHook.getModuleApkPath();
+        if (apkPath != null) {
+            try (ZipFile zip = new ZipFile(apkPath)) {
+                ZipEntry entry = zip.getEntry("assets/silero_vad.onnx");
+                if (entry != null) {
+                    try (InputStream is = zip.getInputStream(entry)) {
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        byte[] buf = new byte[8192];
+                        int r;
+                        while ((r = is.read(buf)) != -1) {
+                            baos.write(buf, 0, r);
+                        }
+                        byte[] modelBytes = baos.toByteArray();
+
+                        // Cache to host directory for fast subsequent starts
+                        if (context != null && modelBytes.length > 0) {
+                            try (FileOutputStream fos = new FileOutputStream(new File(context.getCacheDir(), "silero_vad.onnx"))) {
+                                fos.write(modelBytes);
+                            } catch (Throwable ignored) {}
+                        }
+                        Log.i(TAG, "Loaded silero_vad.onnx directly from module APK (" + apkPath + ", " + modelBytes.length + " bytes)");
+                        return modelBytes;
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "Failed reading silero_vad.onnx from APK zip: " + t.getMessage());
+            }
+        }
+
+        // 3. Direct assets stream fallback (when running inside module app context)
+        if (context != null) {
+            try (InputStream is = context.getAssets().open("silero_vad.onnx")) {
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = is.read(buf)) != -1) {
+                    baos.write(buf, 0, r);
+                }
+                byte[] bytes = baos.toByteArray();
+                Log.i(TAG, "Loaded silero_vad.onnx via context.getAssets()");
+                return bytes;
+            } catch (Throwable ignored) {}
+        }
+
+        Log.e(TAG, "silero_vad.onnx could not be located or loaded");
+        return null;
+    }
+
+    public static void prewarm(Context context) {
+        if (sharedSession != null) {
+            return;
+        }
+        synchronized (INIT_LOCK) {
+            if (sharedSession != null) {
+                return;
+            }
+            try {
+                byte[] modelBytes = loadModelBytes(context);
+                if (modelBytes == null || modelBytes.length == 0) {
+                    Log.w(TAG, "Silero VAD prewarm skipped: model bytes not found");
+                    return;
+                }
+
+                sharedEnv = OrtEnvironment.getEnvironment();
+                OrtSession.SessionOptions options = new OrtSession.SessionOptions();
+                options.setIntraOpNumThreads(1);
+                options.setInterOpNumThreads(1);
+                options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT);
+
+                sharedSession = sharedEnv.createSession(modelBytes, options);
+                Log.i(TAG, "Silero VAD DNN pre-warmed successfully (0ms ready, " + modelBytes.length + " bytes)");
+            } catch (Throwable t) {
+                Log.e(TAG, "Error pre-warming Silero VAD: " + t.getMessage(), t);
+            }
+        }
+    }
+
+    private synchronized void initModel() {
+        if (sharedSession == null) {
+            prewarm(hostContext);
+        }
+
+        ortEnv = sharedEnv;
+        ortSession = sharedSession;
+        isInitialized = (ortSession != null);
+        resetStates();
+
+        if (isInitialized) {
+            Log.i(TAG, "Silero VAD session active (0ms start, silence: " + silenceTimeoutMs + "ms, speech: " + SPEECH_DEBOUNCE_MS + "ms)");
+        }
+    }
+
+    private void resetStates() {
+        if (h != null) java.util.Arrays.fill(h, 0.0f);
+        if (c != null) java.util.Arrays.fill(c, 0.0f);
+        speechFramesCount = 0;
+        silenceFramesCount = 0;
+    }
+
+    public synchronized void setSilenceTimeoutMs(int silenceTimeoutMs) {
+        int newTimeout = Math.max(300, silenceTimeoutMs);
+        if (this.silenceTimeoutMs != newTimeout) {
+            this.silenceTimeoutMs = newTimeout;
+            recalculateFrameCounts();
+        }
     }
 
     public synchronized void processBuffer(byte[] buffer, int offset, int length) {
-        // Feed into circular pre-roll buffer
-        appendPreRoll(buffer, offset, length);
-
-        // Process audio in 30ms chunks
-        int remaining = length;
-        int currentOffset = offset;
-
-        while (remaining >= FRAME_BYTES) {
-            processFrame(buffer, currentOffset, FRAME_BYTES);
-            currentOffset += FRAME_BYTES;
-            remaining -= FRAME_BYTES;
-        }
-    }
-
-    private void processFrame(byte[] frame, int offset, int length) {
-        // Calculate RMS and Zero-Crossing Rate (ZCR) with pre-emphasis filtering
-        long sum = 0;
-        int zcrCount = 0;
-        short prevSample = 0;
-        int sampleCount = length / 2;
-
-        for (int i = 0; i < length - 1; i += 2) {
-            short rawSample = (short) ((frame[offset + i] & 0xFF) | (frame[offset + i + 1] << 8));
-            short filteredSample = (short) (rawSample - PRE_EMPHASIS_COEFF * prevRawSample);
-            prevRawSample = rawSample;
-
-            sum += (long) filteredSample * filteredSample;
-
-            if (i > 0) {
-                if ((prevSample >= 0 && filteredSample < 0) || (prevSample < 0 && filteredSample >= 0)) {
-                    zcrCount++;
-                }
-            }
-            prevSample = filteredSample;
-        }
-
-        double mean = (double) sum / (sampleCount > 0 ? sampleCount : 1);
-        double rms = Math.sqrt(mean);
-        float frameDb = (float) (20 * Math.log10(rms > 0 ? rms : 1));
-
-        // Initial calibration window (first ~240ms after mic opening)
-        if (processedFrames < INITIAL_CALIBRATION_FRAMES) {
-            processedFrames++;
-            if (processedFrames == 1) {
-                noiseFloorDb = Math.max(20.0f, Math.min(50.0f, frameDb));
-            } else {
-                noiseFloorDb = noiseFloorDb * 0.7f + frameDb * 0.3f;
-            }
+        if (buffer == null || length <= 0) {
             return;
         }
 
-        // Monotonous low-frequency mechanical rumble (AC, fan, engine hum < ~130-260Hz)
-        boolean isMechanicalHum = (zcrCount < MIN_SPEECH_ZCR);
+        // Feed into circular pre-roll buffer
+        appendPreRoll(buffer, offset, length);
 
-        // Adaptive noise floor tracking:
-        // Allows steady background noise to adapt smoothly even if noise levels rise moderately
-        if (!isSpeaking) {
-            if (frameDb < noiseFloorDb + 12.0f || (isMechanicalHum && frameDb <= 55.0f)) {
-                float alpha = (frameDb < noiseFloorDb) ? 0.05f : 0.01f;
-                noiseFloorDb = Math.max(20.0f, Math.min(55.0f, noiseFloorDb * (1.0f - alpha) + frameDb * alpha));
-            }
+        if (!isInitialized || ortSession == null) {
+            return;
         }
 
-        float speechThresholdDb = Math.max(46.0f, noiseFloorDb + 10.0f);
-        float silenceThresholdDb = Math.max(40.0f, noiseFloorDb + 5.0f);
+        // Accumulate and process in exact 1024-byte (512 sample / 32ms) frames
+        int currentOffset = offset;
+        int remaining = length;
 
-        boolean meetsSpeechEnergy = (frameDb >= speechThresholdDb);
-        boolean validSpeechFrame = meetsSpeechEnergy && (isSpeaking || !isMechanicalHum);
+        while (remaining > 0) {
+            int needed = FRAME_BYTES - frameBufferOffset;
+            int toCopy = Math.min(needed, remaining);
+            System.arraycopy(buffer, currentOffset, frameBuffer, frameBufferOffset, toCopy);
+            frameBufferOffset += toCopy;
+            currentOffset += toCopy;
+            remaining -= toCopy;
 
-        if (validSpeechFrame) {
-            consecutiveSpeechFrames++;
-            silenceDurationMs = 0;
+            if (frameBufferOffset == FRAME_BYTES) {
+                processFrame(frameBuffer);
+                frameBufferOffset = 0;
+            }
+        }
+    }
 
-            if (isSpeaking) {
-                speechPeakDb = Math.max(speechPeakDb, frameDb);
-                utteranceDurationMs += FRAME_DURATION_MS;
-
-                // Max utterance safety clamp: split segment if speech/noise exceeds max duration
-                if (utteranceDurationMs >= MAX_UTTERANCE_DURATION_MS) {
-                    isSpeaking = false;
-                    silenceDurationMs = 0;
-                    utteranceDurationMs = 0;
-                    speechPeakDb = 0.0f;
-                    Log.i(TAG, "Max utterance duration reached (" + MAX_UTTERANCE_DURATION_MS + "ms), forcing speech end");
-                    if (listener != null) {
-                        listener.onSpeechEnd();
-                    }
-                    return;
-                }
+    private void processFrame(byte[] frame) {
+        try {
+            // 1. Convert 16-bit PCM bytes to normalized float [-1.0f, 1.0f]
+            float[] floatAudio = new float[FRAME_SAMPLES];
+            for (int i = 0; i < FRAME_SAMPLES; i++) {
+                short sample = (short) ((frame[i * 2] & 0xFF) | (frame[i * 2 + 1] << 8));
+                floatAudio[i] = sample / 32768.0f;
             }
 
-            if (consecutiveSpeechFrames >= MIN_SPEECH_FRAMES && !isSpeaking) {
-                isSpeaking = true;
-                speechPeakDb = frameDb;
-                utteranceDurationMs = 0;
-                Log.d(TAG, "Speech onset detected (" + frameDb + " dB, noise: " + noiseFloorDb + " dB, zcr: " + zcrCount + ")");
-                if (listener != null) {
-                    listener.onSpeechStart();
+            // 2. Prepare ONNX input tensors
+            Map<String, OnnxTensor> inputs = new HashMap<>(4);
+            inputs.put("input", OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(floatAudio), new long[]{1, FRAME_SAMPLES}));
+            inputs.put("sr", OnnxTensor.createTensor(ortEnv, LongBuffer.wrap(new long[]{SAMPLE_RATE}), new long[]{1}));
+            inputs.put("h", OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(h), new long[]{2, 1, 64}));
+            inputs.put("c", OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(c), new long[]{2, 1, 64}));
+
+            // 3. Run inference
+            float confidence = 0.0f;
+            try (OrtSession.Result result = ortSession.run(inputs)) {
+                // Output 0: confidence probability [1, 1]
+                Object outputObj = result.get(0).getValue();
+                if (outputObj instanceof float[][]) {
+                    confidence = ((float[][]) outputObj)[0][0];
                 }
-            }
-        } else {
-            // Relative falloff condition: detects speech end in high ambient noise
-            boolean relativeFalloff = isSpeaking && (speechPeakDb >= speechThresholdDb) && (speechPeakDb - frameDb >= RELATIVE_FALLOFF_DB);
-            boolean isSilence = (frameDb < silenceThresholdDb) || relativeFalloff || (!isSpeaking && isMechanicalHum);
 
-            if (isSilence) {
-                consecutiveSpeechFrames = 0;
-
-                if (isSpeaking) {
-                    speechPeakDb = Math.max(speechThresholdDb, speechPeakDb - PEAK_DECAY_PER_FRAME_DB);
-                    utteranceDurationMs += FRAME_DURATION_MS;
-                    silenceDurationMs += FRAME_DURATION_MS;
-
-                    if (silenceDurationMs >= silenceTimeoutMs) {
-                        isSpeaking = false;
-                        silenceDurationMs = 0;
-                        utteranceDurationMs = 0;
-                        speechPeakDb = 0.0f;
-                        Log.d(TAG, "Speech end detected (silence " + silenceTimeoutMs + "ms, frame: " + frameDb + " dB, peak: " + speechPeakDb + " dB)");
-                        if (listener != null) {
-                            listener.onSpeechEnd();
+                // Output 1: updated hn state [2, 1, 64]
+                Object hnObj = result.get(1).getValue();
+                if (hnObj instanceof float[][][]) {
+                    float[][][] hnVal = (float[][][]) hnObj;
+                    int idx = 0;
+                    for (int i = 0; i < 2; i++) {
+                        for (int j = 0; j < 1; j++) {
+                            for (int k = 0; k < 64; k++) {
+                                h[idx++] = hnVal[i][j][k];
+                            }
                         }
                     }
                 }
-            } else {
-                // In-between hysteresis zone
-                if (isSpeaking) {
-                    speechPeakDb = Math.max(speechPeakDb, frameDb);
-                    utteranceDurationMs += FRAME_DURATION_MS;
-                    silenceDurationMs += (FRAME_DURATION_MS / 2);
-                } else {
-                    consecutiveSpeechFrames = 0;
+
+                // Output 2: updated cn state [2, 1, 64]
+                Object cnObj = result.get(2).getValue();
+                if (cnObj instanceof float[][][]) {
+                    float[][][] cnVal = (float[][][]) cnObj;
+                    int idx = 0;
+                    for (int i = 0; i < 2; i++) {
+                        for (int j = 0; j < 1; j++) {
+                            for (int k = 0; k < 64; k++) {
+                                c[idx++] = cnVal[i][j][k];
+                            }
+                        }
+                    }
+                }
+            } finally {
+                for (OnnxTensor tensor : inputs.values()) {
+                    tensor.close();
                 }
             }
+
+            // 4. Continuous speech hysteresis decision
+            boolean isFrameSpeech = (confidence >= CONFIDENCE_THRESHOLD);
+            boolean speechDetected = evaluateContinuousSpeech(isFrameSpeech);
+
+            if (speechDetected && !isSpeaking) {
+                isSpeaking = true;
+                Log.d(TAG, "Silero VAD: Speech onset detected (prob: " + confidence + ")");
+                if (listener != null) {
+                    listener.onSpeechStart();
+                }
+            } else if (!speechDetected && isSpeaking) {
+                isSpeaking = false;
+                Log.d(TAG, "Silero VAD: Speech end detected (silence duration elapsed, prob: " + confidence + ")");
+                if (listener != null) {
+                    listener.onSpeechEnd();
+                }
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Error in Silero VAD inference: " + t.getMessage());
         }
+    }
+
+    private boolean evaluateContinuousSpeech(boolean isSpeech) {
+        if (isSpeech) {
+            if (speechFramesCount <= maxSpeechFrames) {
+                speechFramesCount++;
+            }
+            if (speechFramesCount > maxSpeechFrames) {
+                silenceFramesCount = 0;
+                return true;
+            }
+        } else {
+            if (silenceFramesCount <= maxSilenceFrames) {
+                silenceFramesCount++;
+            }
+            if (silenceFramesCount > maxSilenceFrames) {
+                speechFramesCount = 0;
+                return false;
+            } else if (speechFramesCount > maxSpeechFrames) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private synchronized void appendPreRoll(byte[] buffer, int offset, int length) {
@@ -218,14 +369,19 @@ public class VoiceActivityDetector {
 
     public synchronized void reset() {
         isSpeaking = false;
-        consecutiveSpeechFrames = 0;
-        silenceDurationMs = 0;
-        processedFrames = 0;
+        frameBufferOffset = 0;
         preRollWriteIndex = 0;
         preRollFull = false;
-        prevRawSample = 0;
-        speechPeakDb = 0.0f;
-        utteranceDurationMs = 0;
+        resetStates();
+    }
+
+    public synchronized void close() {
+        isSpeaking = false;
+        frameBufferOffset = 0;
+        preRollWriteIndex = 0;
+        preRollFull = false;
+        resetStates();
+        // sharedSession and sharedEnv remain warm for 0ms subsequent sessions
     }
 
     public boolean isSpeaking() {

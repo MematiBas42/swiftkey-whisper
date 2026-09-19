@@ -108,12 +108,18 @@ public class MainHook extends XposedModule {
             log(Log.ERROR, TAG, "Error loading RemotePreferences: " + t.getMessage(), t);
         }
 
-        // 2. Pre-warm EarconPlayer SoundPool
+        // 2. Pre-warm EarconPlayer SoundPool & Silero VAD DNN (0ms mic start)
         try {
             EarconPlayer.getInstance(context);
             log(Log.INFO, TAG, "Pre-warmed EarconPlayer SoundPool");
         } catch (Throwable t) {
             log(Log.WARN, TAG, "Failed pre-warming EarconPlayer: " + t.getMessage());
+        }
+
+        try {
+            new Thread(() -> com.nitro.swiftkeywhisper.audio.VoiceActivityDetector.prewarm(context), "SileroVadPrewarm").start();
+        } catch (Throwable t) {
+            log(Log.WARN, TAG, "Failed starting Silero VAD prewarm thread: " + t.getMessage());
         }
 
         // 3. Hook SpeechRecognizer

@@ -126,7 +126,7 @@ public class AudioRecorderManager {
 
             // Initialize VAD with configured silence threshold (e.g. 750ms)
             int silenceTimeout = config != null ? config.getSilenceTimeoutMs() : ConfigManager.DEFAULT_SILENCE_TIMEOUT_MS;
-            vad = new VoiceActivityDetector(silenceTimeout, new VoiceActivityDetector.VadListener() {
+            vad = new VoiceActivityDetector(appContext, silenceTimeout, new VoiceActivityDetector.VadListener() {
                 @Override
                 public void onSpeechStart() {
                     handleSpeechOnset(sessionId);
@@ -416,6 +416,11 @@ public class AudioRecorderManager {
             Log.w(TAG, "Error stopping AudioRecord: " + t.getMessage());
         }
 
+        if (vad != null) {
+            vad.close();
+            vad = null;
+        }
+
         byte[] remainingPcm;
         synchronized (pcmLock) {
             remainingPcm = currentSentencePcm != null ? currentSentencePcm.toByteArray() : new byte[0];
@@ -490,7 +495,8 @@ public class AudioRecorderManager {
         }
 
         if (vad != null) {
-            vad.reset();
+            vad.close();
+            vad = null;
         }
 
         if (currentConfig != null) {
@@ -498,54 +504,6 @@ public class AudioRecorderManager {
         }
 
         deliverFinalResults(sessionId, utteranceId, "");
-    }
-
-    public synchronized void onEditorTextCleared() {
-        if (!isRecording) {
-            return;
-        }
-        final int utteranceId = utteranceEpoch.incrementAndGet();
-        Log.i(TAG, "onEditorTextCleared: host app sent/cleared text, invalidating in-flight utterance " + utteranceId);
-
-        // 1. Cancel in-flight HTTP requests and stop partial timer
-        WhisperClient.cancelAllRequests();
-        stopPartialScheduler();
-
-        // 2. Clear accumulated sentence audio
-        synchronized (pcmLock) {
-            if (currentSentencePcm != null) {
-                currentSentencePcm.reset();
-            }
-        }
-
-        // 3. Reset VAD engine state
-        if (vad != null) {
-            vad.reset();
-        }
-
-        // 4. Reset speech state & notify SwiftKey with empty partial to clear composing text buffer.
-        // DO NOT call onEndOfSpeech() here, because SwiftKey commits any cached composing text to the editor on end-of-speech.
-        isSpeechActive.set(false);
-        final RecognitionListener listener = currentListener;
-        if (listener != null) {
-            mainHandler.post(() -> {
-                if (isRecording && currentListener == listener) {
-                    Bundle emptyBundle = createResultsBundle("", false);
-                    listener.onPartialResults(emptyBundle);
-                }
-            });
-        }
-
-        // 5. Clear prompt context so discarded utterance doesn't leak into subsequent prompts
-        if (currentConfig != null) {
-            currentConfig.clearContext();
-        }
-
-        // 6. Re-arm auto-stop timer
-        int autoStopMs = currentConfig != null ? currentConfig.getAutoStopTimeoutMs() : ConfigManager.DEFAULT_AUTO_STOP_TIMEOUT_MS;
-        if (autoStopMs > 0) {
-            scheduleAutoStop(sessionEpoch.get(), autoStopMs);
-        }
     }
 
     public synchronized void cancel() {
@@ -578,6 +536,11 @@ public class AudioRecorderManager {
                 audioRecord = null;
             }
         } catch (Throwable ignored) {}
+
+        if (vad != null) {
+            vad.close();
+            vad = null;
+        }
 
         synchronized (pcmLock) {
             currentSentencePcm = null;
