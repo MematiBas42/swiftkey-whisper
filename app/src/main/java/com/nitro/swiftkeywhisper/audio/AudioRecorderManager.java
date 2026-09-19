@@ -298,8 +298,19 @@ public class AudioRecorderManager {
         if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording) {
             return;
         }
-        byte[] wavBytes = WavWriter.pcmToWav(pcmData, SAMPLE_RATE, 1, 16);
-        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV) [session " + sessionId + ", utterance " + utteranceId + "]");
+
+        // Trim the trailing silence timeout that accumulated while waiting for speech to end
+        int silenceTimeoutMs = currentConfig != null ? currentConfig.getSilenceTimeoutMs() : ConfigManager.DEFAULT_SILENCE_TIMEOUT_MS;
+        int silenceBytes = silenceTimeoutMs * (SAMPLE_RATE * 2 / 1000); // 32 bytes per ms (16kHz 16-bit mono)
+        byte[] cleanPcm = pcmData;
+        if (pcmData.length > silenceBytes + 9600) {
+            int trimmedLength = pcmData.length - silenceBytes;
+            cleanPcm = new byte[trimmedLength];
+            System.arraycopy(pcmData, 0, cleanPcm, 0, trimmedLength);
+        }
+
+        byte[] wavBytes = WavWriter.pcmToWav(cleanPcm, SAMPLE_RATE, 1, 16);
+        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV, trimmed " + (pcmData.length - cleanPcm.length) + " silence bytes) [session " + sessionId + ", utterance " + utteranceId + "]");
 
         WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
             @Override
