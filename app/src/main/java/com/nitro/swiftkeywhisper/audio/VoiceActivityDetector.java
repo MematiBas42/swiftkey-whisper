@@ -218,8 +218,6 @@ public class VoiceActivityDetector {
 
     public synchronized void notifyPartialDispatched() {
         framesSinceLastBoundary = 0;
-        silenceFramesCount = 0;
-        acousticBoundaryTriggered = false;
     }
 
     public synchronized void setSilenceTimeoutMs(int silenceTimeoutMs) {
@@ -330,6 +328,7 @@ public class VoiceActivityDetector {
                 }
             } else if (!speechDetected && isSpeaking) {
                 isSpeaking = false;
+                acousticBoundaryTriggered = false;
                 Log.d(TAG, "Silero VAD: Speech end detected (silence duration elapsed, prob: " + confidence + ")");
                 if (listener != null) {
                     listener.onSpeechEnd();
@@ -403,6 +402,7 @@ public class VoiceActivityDetector {
             // Fire acoustic boundary on natural micro-pause during active speech
             if (isSpeaking && silenceFramesCount >= requiredPause && !acousticBoundaryTriggered) {
                 acousticBoundaryTriggered = true;
+                framesSinceLastBoundary = 0;
                 Log.d(TAG, "Silero VAD: Acoustic boundary triggered! (silenceFrames: " + silenceFramesCount +
                         ", required: " + requiredPause +
                         ", framesSinceLastBoundary: " + framesSinceLastBoundary +
