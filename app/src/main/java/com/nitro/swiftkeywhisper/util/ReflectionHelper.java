@@ -33,6 +33,17 @@ public class ReflectionHelper {
         } catch (Throwable ignored) {}
     }
 
+    public static void setObjectField(Object obj, String fieldName, Object value) {
+        if (obj == null || fieldName == null) return;
+        try {
+            Field field = findField(obj.getClass(), fieldName);
+            if (field != null) {
+                field.setAccessible(true);
+                field.set(obj, value);
+            }
+        } catch (Throwable ignored) {}
+    }
+
     public static Object callMethod(Object obj, String methodName, Object... args) {
         if (obj == null || methodName == null) return null;
         try {

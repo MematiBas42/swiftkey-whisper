@@ -18,22 +18,8 @@ public class AudioEffectsHelper {
 
         release();
 
-        // 1. NoiseSuppressor
-        try {
-            if (NoiseSuppressor.isAvailable()) {
-                noiseSuppressor = NoiseSuppressor.create(audioSessionId);
-                if (noiseSuppressor != null) {
-                    noiseSuppressor.setEnabled(true);
-                    Log.i(TAG, "NoiseSuppressor attached and enabled on session " + audioSessionId);
-                } else {
-                    Log.w(TAG, "NoiseSuppressor.create returned null for session " + audioSessionId);
-                }
-            } else {
-                Log.d(TAG, "NoiseSuppressor is not available on this device");
-            }
-        } catch (Throwable t) {
-            Log.w(TAG, "Failed to attach NoiseSuppressor: " + t.getMessage());
-        }
+        // 1. NoiseSuppressor (Disabled to avoid spectral distortion and preserve raw audio for Whisper)
+        Log.d(TAG, "NoiseSuppressor explicitly disabled to preserve raw audio for Whisper");
 
         // 2. AutomaticGainControl
         try {

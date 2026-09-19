@@ -356,12 +356,11 @@ public class SpeechRecognizerHook {
                             .setPriority(XposedInterface.PRIORITY_DEFAULT)
                             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
                             .intercept(chain -> {
-                                Object result = chain.proceed();
                                 Object b1Var = chain.getArg(0);
-                                if (b1Var != null) {
-                                    handleLottieState(module, chain.getThisObject(), b1Var);
+                                if (b1Var != null && handleLottieState(module, chain.getThisObject(), b1Var)) {
+                                    return null;
                                 }
-                                return result;
+                                return chain.proceed();
                             });
                     module.log(Log.INFO, TAG, "Hooked LottieVoiceMicrophoneView.setState successfully!");
                     break;
@@ -372,9 +371,13 @@ public class SpeechRecognizerHook {
         }
     }
 
-    private static void handleLottieState(XposedModule module, Object view, Object b1Var) {
+    private static boolean handleLottieState(XposedModule module, Object view, Object b1Var) {
         lastLottieViewRef = new WeakReference<>(view);
         String className = b1Var.getClass().getName();
+
+        try {
+            ReflectionHelper.setObjectField(view, "f7068t", b1Var);
+        } catch (Throwable ignored) {}
 
         // 1. VoiceTypingStarted (u50.z0): Triggered by onReadyForSpeech
         if (className.endsWith(".z0")) {
@@ -400,9 +403,14 @@ public class SpeechRecognizerHook {
                     if (repObj instanceof Integer) repeatCount = (Integer) repObj;
                 } catch (Throwable ignored) {}
 
-                if ((minFrame != 1.0f && minFrame != 32.0f) || maxFrame < 150.0f || repeatCount != -1) {
+                // If mic is freshly opened from idle (minFrame == 0), play opening animation 1 -> 151
+                // But if mic is ALREADY active/speaking (minFrame >= 32), transition directly to quiet wave 32 -> 151 (NEVER rewind to frame 1 static mic!)
+                if (minFrame == 0f) {
                     ReflectionHelper.callMethod(view, "f", 1, 151, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started calm resting wave f(1, 151, -1) for z0 (speaking=false)");
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Fresh open f(1, 151, -1) for z0");
+                } else if (minFrame != 32.0f || maxFrame < 150.0f || repeatCount != -1) {
+                    ReflectionHelper.callMethod(view, "f", 32, 151, -1);
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Switched to calm quiet wave f(32, 151, -1) for z0 (speaking=false)");
                 }
             } else {
                 float minFrame = 0f;
@@ -416,6 +424,7 @@ public class SpeechRecognizerHook {
                     module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started active talk wave f(152, 281, -1) for z0 (speaking=true)");
                 }
             }
+            return true;
         }
         // 2. VoiceTypingFragment / Completed (u50.p0, u50.y0 or any other u50.k0 state)
         else if (className.endsWith(".p0") || className.endsWith(".k0") || className.endsWith(".y0")) {
@@ -454,6 +463,7 @@ public class SpeechRecognizerHook {
                     module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed active talk wave f(152, 281, -1) for p0/k0 (speaking=true)");
                 }
             }
+            return true;
         }
         // 3. VoiceTypingOver (u50.o0), VoiceTypingError (u50.m0), VoiceTypingIdle (u50.e1)
         else if (className.endsWith(".o0") || className.endsWith(".m0") || className.endsWith(".e1")) {
@@ -484,7 +494,9 @@ public class SpeechRecognizerHook {
                 ReflectionHelper.callMethod(view, "f", 0, 0, 0);
                 module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Forced f(0, 0, 0) for " + className);
             }
+            return true;
         }
+        return false;
     }
 
     private static void hookKeyboardService(XposedModule module, ClassLoader classLoader) {
