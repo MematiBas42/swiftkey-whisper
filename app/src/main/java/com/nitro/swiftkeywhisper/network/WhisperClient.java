@@ -139,8 +139,13 @@ public class WhisperClient {
                 .post(bodyBuilder.build())
                 .build();
 
+        Call call = httpClient.newCall(request);
+        if (TAG_PARTIAL.equals(requestTag)) {
+            call.timeout().timeout(3500, TimeUnit.MILLISECONDS);
+        }
+
         long startTime = System.currentTimeMillis();
-        httpClient.newCall(request).enqueue(new Callback() {
+        call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
                 if (call.isCanceled()) {

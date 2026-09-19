@@ -52,6 +52,18 @@ public class AudioRecorderManager {
     private final ScheduledExecutorService partialScheduler = Executors.newSingleThreadScheduledExecutor();
     private ScheduledFuture<?> partialTaskFuture;
 
+    // VAD-Guided Streaming Parameters
+    private static final int MIN_PARTIAL_AUDIO_BYTES = 16000; // 500ms at 16kHz 16-bit mono
+    private static final int MIN_SPEECH_DELTA_BYTES = 9600;   // 300ms new audio since last partial
+    private static final long PARTIAL_IN_FLIGHT_TIMEOUT_MS = 3000L;
+
+    private final AtomicBoolean isPartialInFlight = new AtomicBoolean(false);
+    private final AtomicInteger partialSequenceGenerator = new AtomicInteger(0);
+    private volatile int lastDeliveredSequenceId = 0;
+    private volatile int lastPartialAudioBytes = 0;
+    private volatile long lastPartialDispatchTimeMs = 0L;
+    private final Object sequenceFenceLock = new Object();
+
     private RecognitionListener currentListener;
     private ConfigManager currentConfig;
     private String currentLanguage;
@@ -68,6 +80,14 @@ public class AudioRecorderManager {
 
     public boolean isRecording() {
         return isRecording;
+    }
+
+    public boolean isRecordingActive() {
+        return isRecording;
+    }
+
+    public boolean isSpeaking() {
+        return isSpeechActive.get();
     }
 
     public boolean hasPendingUtterance() {
@@ -135,6 +155,11 @@ public class AudioRecorderManager {
                 @Override
                 public void onSpeechEnd() {
                     handleSpeechOffset(sessionId);
+                }
+
+                @Override
+                public void onAcousticBoundary() {
+                    handleAcousticBoundary(sessionId);
                 }
             });
 
@@ -214,8 +239,13 @@ public class AudioRecorderManager {
             }
         }
 
-        if (currentConfig != null && currentConfig.isStreamingEnabled()) {
-            startPartialScheduler(sessionId);
+        partialSequenceGenerator.set(0);
+        lastDeliveredSequenceId = 0;
+        lastPartialAudioBytes = 0;
+        isPartialInFlight.set(false);
+
+        if (vad != null) {
+            vad.notifyPartialDispatched();
         }
     }
 
@@ -240,6 +270,7 @@ public class AudioRecorderManager {
 
         stopPartialScheduler();
         WhisperClient.cancelPartialRequests();
+        isPartialInFlight.set(false);
 
         // Arm auto-stop timer after sentence ends
         int autoStopMs = currentConfig != null ? currentConfig.getAutoStopTimeoutMs() : ConfigManager.DEFAULT_AUTO_STOP_TIMEOUT_MS;
@@ -306,50 +337,106 @@ public class AudioRecorderManager {
         });
     }
 
-    private void startPartialScheduler(int sessionId) {
-        stopPartialScheduler();
-        int interval = currentConfig != null ? currentConfig.getPartialIntervalMs() : 1000;
+    public void handleAcousticBoundary(int sessionId) {
+        final int utteranceId = utteranceEpoch.get();
+        if (sessionId != sessionEpoch.get() || !isRecording || !isSpeechActive.get()) {
+            return;
+        }
+        if (currentConfig == null || !currentConfig.isStreamingEnabled()) {
+            return;
+        }
 
-        partialTaskFuture = partialScheduler.scheduleWithFixedDelay(() -> {
-            final int utteranceId = utteranceEpoch.get();
-            if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording || !isSpeechActive.get()) {
+        byte[] snapshot;
+        synchronized (pcmLock) {
+            snapshot = currentSentencePcm != null ? currentSentencePcm.toByteArray() : null;
+        }
+
+        if (snapshot == null || snapshot.length < MIN_PARTIAL_AUDIO_BYTES) {
+            return;
+        }
+
+        if ((snapshot.length - lastPartialAudioBytes) < MIN_SPEECH_DELTA_BYTES) {
+            return;
+        }
+
+        // Concurrency gating: allow only 1 in-flight partial request
+        if (isPartialInFlight.get()) {
+            long inFlightDuration = System.currentTimeMillis() - lastPartialDispatchTimeMs;
+            if (inFlightDuration > PARTIAL_IN_FLIGHT_TIMEOUT_MS) {
+                Log.w(TAG, "In-flight partial timed out (" + inFlightDuration + "ms), cancelling and resetting gate");
+                WhisperClient.cancelPartialRequests();
+                isPartialInFlight.set(false);
+            } else {
+                Log.d(TAG, "Skipping acoustic boundary: another partial is currently in flight (" + inFlightDuration + "ms)");
                 return;
             }
+        }
 
-            byte[] snapshot;
-            synchronized (pcmLock) {
-                snapshot = currentSentencePcm != null ? currentSentencePcm.toByteArray() : new byte[0];
-            }
+        dispatchPartialSnapshot(sessionId, utteranceId, snapshot);
+    }
 
-            if (snapshot.length < 16000) {
-                return;
-            }
+    private void dispatchPartialSnapshot(int sessionId, int utteranceId, byte[] snapshot) {
+        if (!isPartialInFlight.compareAndSet(false, true)) {
+            return;
+        }
 
-            byte[] wavBytes = WavWriter.pcmToWav(snapshot, SAMPLE_RATE, 1, 16);
-            WhisperClient.transcribePartial(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
-                @Override
-                public void onSuccess(String text) {
-                    if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || text == null || text.trim().isEmpty() || !isSpeechActive.get() || !isRecording) {
+        lastPartialDispatchTimeMs = System.currentTimeMillis();
+        lastPartialAudioBytes = snapshot.length;
+        final int seqId = partialSequenceGenerator.incrementAndGet();
+
+        // Reset dynamic acoustic boundary decay on VAD
+        if (vad != null) {
+            vad.notifyPartialDispatched();
+        }
+
+        byte[] wavBytes = WavWriter.pcmToWav(snapshot, SAMPLE_RATE, 1, 16);
+        Log.d(TAG, "Dispatching VAD-guided partial [seq " + seqId + ", " + wavBytes.length + " bytes WAV, session " + sessionId + ", utterance " + utteranceId + "]");
+
+        WhisperClient.transcribePartial(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
+            @Override
+            public void onSuccess(String text) {
+                isPartialInFlight.set(false);
+
+                if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording || !isSpeechActive.get()) {
+                    Log.d(TAG, "Partial dropped: session/utterance expired or speech inactive [seq " + seqId + "]");
+                    return;
+                }
+
+                if (text == null || text.trim().isEmpty()) {
+                    return;
+                }
+
+                synchronized (sequenceFenceLock) {
+                    if (seqId <= lastDeliveredSequenceId) {
+                        Log.d(TAG, "Dropping out-of-order partial: seq " + seqId + " <= lastDelivered " + lastDeliveredSequenceId);
                         return;
                     }
-
-                    final RecognitionListener listener = currentListener;
-                    if (listener != null) {
-                        mainHandler.post(() -> {
-                            if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && currentListener == listener && isRecording && isSpeechActive.get()) {
-                                Bundle bundle = createResultsBundle(text, false);
-                                listener.onPartialResults(bundle);
-                            }
-                        });
-                    }
+                    lastDeliveredSequenceId = seqId;
                 }
 
-                @Override
-                public void onError(String errorMessage) {
-                    // Suppress partial errors; final segment will retry
+                final RecognitionListener listener = currentListener;
+                if (listener != null) {
+                    mainHandler.post(() -> {
+                        if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && currentListener == listener && isRecording && isSpeechActive.get()) {
+                            Bundle bundle = createResultsBundle(text, false);
+                            listener.onPartialResults(bundle);
+                        }
+                    });
                 }
-            });
-        }, interval, interval, TimeUnit.MILLISECONDS);
+            }
+
+            @Override
+            public void onError(String errorMessage) {
+                isPartialInFlight.set(false);
+                Log.d(TAG, "Partial error suppressed [seq " + seqId + "]: " + errorMessage);
+            }
+        });
+    }
+
+    private void startPartialScheduler(int sessionId) {
+        if (vad != null) {
+            vad.notifyPartialDispatched();
+        }
     }
 
     private void stopPartialScheduler() {
@@ -357,6 +444,7 @@ public class AudioRecorderManager {
             partialTaskFuture.cancel(false);
             partialTaskFuture = null;
         }
+        isPartialInFlight.set(false);
     }
 
     private synchronized void scheduleAutoStop(int sessionId, long delayMs) {

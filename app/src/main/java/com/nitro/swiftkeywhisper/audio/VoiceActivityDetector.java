@@ -27,6 +27,7 @@ public class VoiceActivityDetector {
     public interface VadListener {
         void onSpeechStart();
         void onSpeechEnd();
+        void onAcousticBoundary();
     }
 
     private final VadListener listener;
@@ -65,13 +66,23 @@ public class VoiceActivityDetector {
     private int frameBufferOffset = 0;
 
     // Timing & Debounce parameters (calculated from milliseconds)
-    private static final int SPEECH_DEBOUNCE_MS = 180; // 180ms ~ 6 frames
-    private static final float CONFIDENCE_THRESHOLD = 0.85f; // Silero high-confidence speech threshold
+    private static final int SPEECH_DEBOUNCE_MS = 160; // 160ms ~ 5 frames
+    private static final float SPEECH_ONSET_THRESHOLD = 0.70f; // Silero high-confidence speech threshold
+    private static final float MIN_SPEECH_EXIT_THRESHOLD = 0.58f; // Initial silence/micro-dip threshold
+    private static final float MAX_SPEECH_EXIT_THRESHOLD = 0.68f; // Upper silence threshold after sustained speech
+    private static final int CONSECUTIVE_SPEECH_FOR_RESET = 2; // Need >= 2 frames (~64ms) of speech to wipe silence counter
+
+    // 1-frame micro-pause parameters
+    private static final int INITIAL_MICRO_PAUSE_FRAMES = 2; // ~64ms right after onset/boundary for stabilization
+    private static final int MIN_MICRO_PAUSE_FRAMES = 1;     // 1 frame (~32ms) floor
 
     private int maxSpeechFrames;
     private int maxSilenceFrames;
     private int speechFramesCount = 0;
     private int silenceFramesCount = 0;
+    private int consecutiveSpeechFrames = 0;
+    private int framesSinceLastBoundary = 0;
+    private boolean acousticBoundaryTriggered = false;
 
     // State
     private boolean isSpeaking = false;
@@ -200,6 +211,15 @@ public class VoiceActivityDetector {
         if (c != null) java.util.Arrays.fill(c, 0.0f);
         speechFramesCount = 0;
         silenceFramesCount = 0;
+        consecutiveSpeechFrames = 0;
+        framesSinceLastBoundary = 0;
+        acousticBoundaryTriggered = false;
+    }
+
+    public synchronized void notifyPartialDispatched() {
+        framesSinceLastBoundary = 0;
+        silenceFramesCount = 0;
+        acousticBoundaryTriggered = false;
     }
 
     public synchronized void setSilenceTimeoutMs(int silenceTimeoutMs) {
@@ -299,9 +319,8 @@ public class VoiceActivityDetector {
                 }
             }
 
-            // 4. Continuous speech hysteresis decision
-            boolean isFrameSpeech = (confidence >= CONFIDENCE_THRESHOLD);
-            boolean speechDetected = evaluateContinuousSpeech(isFrameSpeech);
+            // 4. Continuous speech dual-threshold hysteresis decision
+            boolean speechDetected = evaluateContinuousSpeech(confidence);
 
             if (speechDetected && !isSpeaking) {
                 isSpeaking = true;
@@ -321,19 +340,78 @@ public class VoiceActivityDetector {
         }
     }
 
-    private boolean evaluateContinuousSpeech(boolean isSpeech) {
+    private int calculateDynamicMicroPauseFrames() {
+        // Frames since last partial/onset: 32ms per frame
+        // <400ms (<13 frames): 3 frames (~96ms)
+        // >=400ms (>=13 frames): 2 frames (~64ms - safe phonetic floor)
+        if (framesSinceLastBoundary < 13) {
+            return INITIAL_MICRO_PAUSE_FRAMES;
+        } else {
+            return MIN_MICRO_PAUSE_FRAMES;
+        }
+    }
+
+    private float calculateDynamicSpeechExitThreshold() {
+        // First 1000ms (~31 frames): keep base threshold at 0.58f
+        if (framesSinceLastBoundary <= 31) {
+            return MIN_SPEECH_EXIT_THRESHOLD;
+        }
+        // Between 1000ms and 2000ms (frames 31-62): linearly ramp to 0.68f
+        if (framesSinceLastBoundary >= 62) {
+            return MAX_SPEECH_EXIT_THRESHOLD;
+        }
+        float progress = (float) (framesSinceLastBoundary - 31) / 31.0f;
+        return MIN_SPEECH_EXIT_THRESHOLD + progress * (MAX_SPEECH_EXIT_THRESHOLD - MIN_SPEECH_EXIT_THRESHOLD);
+    }
+
+    private boolean evaluateContinuousSpeech(float confidence) {
+        if (isSpeaking) {
+            framesSinceLastBoundary++;
+        }
+
+        float exitThreshold = calculateDynamicSpeechExitThreshold();
+        boolean isSpeech = (confidence >= SPEECH_ONSET_THRESHOLD);
+        boolean isSilence = (confidence < exitThreshold);
+
         if (isSpeech) {
+            consecutiveSpeechFrames++;
             if (speechFramesCount <= maxSpeechFrames) {
                 speechFramesCount++;
             }
-            if (speechFramesCount > maxSpeechFrames) {
+
+            // Only wipe accumulated silence if speech is solidly re-established (>= 2 consecutive frames = ~64ms)
+            // A single 32ms impulse (breath, lip smack, room echo) will NEVER wipe the silence counter!
+            if (consecutiveSpeechFrames >= CONSECUTIVE_SPEECH_FOR_RESET) {
                 silenceFramesCount = 0;
+                acousticBoundaryTriggered = false;
+            }
+
+            if (speechFramesCount > maxSpeechFrames) {
                 return true;
             }
         } else {
-            if (silenceFramesCount <= maxSilenceFrames) {
-                silenceFramesCount++;
+            consecutiveSpeechFrames = 0;
+
+            if (isSilence) {
+                if (silenceFramesCount <= maxSilenceFrames) {
+                    silenceFramesCount++;
+                }
             }
+            // If in ambiguous zone [0.35 - 0.55] while speaking, do not wipe silenceFramesCount
+
+            int requiredPause = calculateDynamicMicroPauseFrames();
+            // Fire acoustic boundary on natural micro-pause during active speech
+            if (isSpeaking && silenceFramesCount >= requiredPause && !acousticBoundaryTriggered) {
+                acousticBoundaryTriggered = true;
+                Log.d(TAG, "Silero VAD: Acoustic boundary triggered! (silenceFrames: " + silenceFramesCount +
+                        ", required: " + requiredPause +
+                        ", framesSinceLastBoundary: " + framesSinceLastBoundary +
+                        ", prob: " + confidence + ")");
+                if (listener != null) {
+                    listener.onAcousticBoundary();
+                }
+            }
+
             if (silenceFramesCount > maxSilenceFrames) {
                 speechFramesCount = 0;
                 return false;

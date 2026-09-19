@@ -35,6 +35,7 @@ public class SpeechRecognizerHook {
     private static final Handler mainHandler = new Handler(Looper.getMainLooper());
     private static final Set<Class<?>> hookedClasses = new HashSet<>();
     private static WeakReference<Object> lastLottieViewRef = new WeakReference<>(null);
+    private static volatile boolean isSessionStarted = false;
 
     public static void initHook(XposedModule module, ClassLoader classLoader, Context context) {
         appContext = context;
@@ -164,6 +165,7 @@ public class SpeechRecognizerHook {
                                     " (" + System.identityHashCode(thisObj) + ")");
 
                             activeRecognizerRef = new WeakReference<>(thisObj);
+                            isSessionStarted = false;
 
                             RecognitionListener listener = listenerMap.get(thisObj);
                             if (listener == null) {
@@ -285,6 +287,7 @@ public class SpeechRecognizerHook {
     }
 
     public static void resetLottieMicrophoneView(XposedModule module) {
+        isSessionStarted = false;
         mainHandler.post(() -> {
             try {
                 Object view = lastLottieViewRef != null ? lastLottieViewRef.get() : null;
@@ -363,7 +366,24 @@ public class SpeechRecognizerHook {
                                 return chain.proceed();
                             });
                     module.log(Log.INFO, TAG, "Hooked LottieVoiceMicrophoneView.setState successfully!");
-                    break;
+                } else if ("onAnimationRepeat".equals(method.getName()) && method.getParameterTypes().length == 1) {
+                    module.hook(method)
+                            .setPriority(XposedInterface.PRIORITY_HIGHEST)
+                            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                            .intercept(chain -> {
+                                Object view = chain.getThisObject();
+                                if (AudioRecorderManager.getInstance().isRecordingActive()) {
+                                    boolean speaking = AudioRecorderManager.getInstance().isSpeaking();
+                                    if (speaking) {
+                                        ReflectionHelper.callMethod(view, "f", 152, 281, -1);
+                                    } else {
+                                        ReflectionHelper.callMethod(view, "f", 32, 151, -1);
+                                    }
+                                    return null; // Suppress SwiftKey's f(0,0,0) fallback!
+                                }
+                                return chain.proceed();
+                            });
+                    module.log(Log.INFO, TAG, "Hooked LottieVoiceMicrophoneView.onAnimationRepeat successfully!");
                 }
             }
         } catch (Throwable t) {
@@ -391,38 +411,20 @@ public class SpeechRecognizerHook {
             if (!speaking) {
                 ReflectionHelper.setBooleanField(view, "f7067s", false);
 
-                float minFrame = 0f;
-                float maxFrame = 0f;
-                int repeatCount = 0;
-                try {
-                    Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                    if (minObj instanceof Float) minFrame = (Float) minObj;
-                    Object maxObj = ReflectionHelper.callMethod(view, "getMaxFrame");
-                    if (maxObj instanceof Float) maxFrame = (Float) maxObj;
-                    Object repObj = ReflectionHelper.callMethod(view, "getRepeatCount");
-                    if (repObj instanceof Integer) repeatCount = (Integer) repObj;
-                } catch (Throwable ignored) {}
-
-                // If mic is freshly opened from idle (minFrame == 0), play opening animation 1 -> 151
-                // But if mic is ALREADY active/speaking (minFrame >= 32), transition directly to quiet wave 32 -> 151 (NEVER rewind to frame 1 static mic!)
-                if (minFrame == 0f) {
+                // If mic is freshly opened from idle (!isSessionStarted), play opening animation 1 -> 151
+                // Once session is started, transition to calm quiet wave 32 -> 151 (never rewind to frame 1 static mic!)
+                if (!isSessionStarted) {
+                    isSessionStarted = true;
                     ReflectionHelper.callMethod(view, "f", 1, 151, -1);
                     module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Fresh open f(1, 151, -1) for z0");
-                } else if (minFrame != 32.0f || maxFrame < 150.0f || repeatCount != -1) {
+                } else {
                     ReflectionHelper.callMethod(view, "f", 32, 151, -1);
                     module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Switched to calm quiet wave f(32, 151, -1) for z0 (speaking=false)");
                 }
             } else {
-                float minFrame = 0f;
-                try {
-                    Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                    if (minObj instanceof Float) minFrame = (Float) minObj;
-                } catch (Throwable ignored) {}
-
-                if (minFrame < 152.0f) {
-                    ReflectionHelper.callMethod(view, "f", 152, 281, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started active talk wave f(152, 281, -1) for z0 (speaking=true)");
-                }
+                isSessionStarted = true;
+                ReflectionHelper.callMethod(view, "f", 152, 281, -1);
+                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started active talk wave f(152, 281, -1) for z0 (speaking=true)");
             }
             return true;
         }
