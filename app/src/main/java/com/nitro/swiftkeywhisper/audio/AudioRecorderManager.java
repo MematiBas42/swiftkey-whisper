@@ -38,6 +38,7 @@ public class AudioRecorderManager {
     private volatile boolean isRecording = false;
     private final AtomicBoolean isSpeechActive = new AtomicBoolean(false);
     private final AtomicInteger sessionEpoch = new AtomicInteger(0);
+    private final AtomicInteger utteranceEpoch = new AtomicInteger(0);
 
     private final Object pcmLock = new Object();
     private ByteArrayOutputStream currentSentencePcm;
@@ -65,6 +66,17 @@ public class AudioRecorderManager {
         return instance;
     }
 
+    public boolean isRecording() {
+        return isRecording;
+    }
+
+    public boolean hasPendingUtterance() {
+        if (isSpeechActive.get()) return true;
+        synchronized (pcmLock) {
+            return currentSentencePcm != null && currentSentencePcm.size() > 0;
+        }
+    }
+
     public synchronized void startRecording(RecognitionListener listener, ConfigManager config, String dynamicLang) {
         startRecording(this.appContext, listener, config, dynamicLang);
     }
@@ -80,6 +92,7 @@ public class AudioRecorderManager {
         }
 
         final int sessionId = sessionEpoch.incrementAndGet();
+        utteranceEpoch.incrementAndGet();
         this.currentListener = listener;
         this.currentConfig = config;
         this.currentLanguage = dynamicLang;
@@ -178,13 +191,14 @@ public class AudioRecorderManager {
             return;
         }
         cancelAutoStop();
+        final int utteranceId = utteranceEpoch.incrementAndGet();
         isSpeechActive.set(true);
-        Log.i(TAG, "Speech onset: activating SwiftKey speaking state & Lottie animation [session " + sessionId + "]");
+        Log.i(TAG, "Speech onset: activating SwiftKey speaking state & Lottie animation [session " + sessionId + ", utterance " + utteranceId + "]");
 
         final RecognitionListener listener = currentListener;
         if (listener != null) {
             mainHandler.post(() -> {
-                if (sessionId == sessionEpoch.get() && isRecording && currentListener == listener) {
+                if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && isRecording && currentListener == listener) {
                     listener.onBeginningOfSpeech();
                 }
             });
@@ -212,12 +226,13 @@ public class AudioRecorderManager {
         if (!isSpeechActive.compareAndSet(true, false)) {
             return;
         }
-        Log.i(TAG, "Speech offset: pausing speaking state & finalizing sentence segment [session " + sessionId + "]");
+        final int utteranceId = utteranceEpoch.get();
+        Log.i(TAG, "Speech offset: pausing speaking state & finalizing sentence segment [session " + sessionId + ", utterance " + utteranceId + "]");
 
         final RecognitionListener listener = currentListener;
         if (listener != null) {
             mainHandler.post(() -> {
-                if (sessionId == sessionEpoch.get() && isRecording && currentListener == listener) {
+                if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && isRecording && currentListener == listener) {
                     listener.onEndOfSpeech();
                 }
             });
@@ -245,21 +260,21 @@ public class AudioRecorderManager {
             return;
         }
 
-        segmentExecutor.execute(() -> processSentenceSegment(sessionId, pcmData));
+        segmentExecutor.execute(() -> processSentenceSegment(sessionId, utteranceId, pcmData));
     }
 
-    private void processSentenceSegment(int sessionId, byte[] pcmData) {
-        if (sessionId != sessionEpoch.get() || !isRecording) {
+    private void processSentenceSegment(int sessionId, int utteranceId, byte[] pcmData) {
+        if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording) {
             return;
         }
         byte[] wavBytes = WavWriter.pcmToWav(pcmData, SAMPLE_RATE, 1, 16);
-        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV) [session " + sessionId + "]");
+        Log.i(TAG, "Submitting sentence segment to Whisper (" + wavBytes.length + " bytes WAV) [session " + sessionId + ", utterance " + utteranceId + "]");
 
         WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
             @Override
             public void onSuccess(String text) {
-                if (sessionId != sessionEpoch.get() || !isRecording) {
-                    Log.d(TAG, "Segment transcription dropped because session changed/stopped [session " + sessionId + "]");
+                if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording) {
+                    Log.d(TAG, "Segment transcription dropped because session/utterance changed/stopped [session " + sessionId + ", utterance " + utteranceId + "]");
                     return;
                 }
                 if (text == null || text.trim().isEmpty()) {
@@ -276,7 +291,7 @@ public class AudioRecorderManager {
                 final RecognitionListener listener = currentListener;
                 if (listener != null) {
                     mainHandler.post(() -> {
-                        if (sessionId == sessionEpoch.get() && currentListener == listener && isRecording) {
+                        if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && currentListener == listener && isRecording) {
                             Bundle bundle = createResultsBundle(text, true);
                             listener.onPartialResults(bundle);
                         }
@@ -296,7 +311,8 @@ public class AudioRecorderManager {
         int interval = currentConfig != null ? currentConfig.getPartialIntervalMs() : 1000;
 
         partialTaskFuture = partialScheduler.scheduleWithFixedDelay(() -> {
-            if (sessionId != sessionEpoch.get() || !isRecording || !isSpeechActive.get()) {
+            final int utteranceId = utteranceEpoch.get();
+            if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || !isRecording || !isSpeechActive.get()) {
                 return;
             }
 
@@ -313,14 +329,14 @@ public class AudioRecorderManager {
             WhisperClient.transcribePartial(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
                 @Override
                 public void onSuccess(String text) {
-                    if (sessionId != sessionEpoch.get() || text == null || text.trim().isEmpty() || !isSpeechActive.get() || !isRecording) {
+                    if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get() || text == null || text.trim().isEmpty() || !isSpeechActive.get() || !isRecording) {
                         return;
                     }
 
                     final RecognitionListener listener = currentListener;
                     if (listener != null) {
                         mainHandler.post(() -> {
-                            if (sessionId == sessionEpoch.get() && currentListener == listener && isRecording && isSpeechActive.get()) {
+                            if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && currentListener == listener && isRecording && isSpeechActive.get()) {
                                 Bundle bundle = createResultsBundle(text, false);
                                 listener.onPartialResults(bundle);
                             }
@@ -370,9 +386,10 @@ public class AudioRecorderManager {
             return;
         }
         final int sessionId = sessionEpoch.get();
+        final int utteranceId = utteranceEpoch.get();
         isRecording = false;
         isSpeechActive.set(false);
-        Log.i(TAG, "stopListening requested: finalizing session " + sessionId);
+        Log.i(TAG, "stopListening requested: finalizing session " + sessionId + ", utterance " + utteranceId);
 
         if (appContext != null) {
             EarconPlayer.getInstance(appContext).playSuccess();
@@ -411,28 +428,28 @@ public class AudioRecorderManager {
             WhisperClient.transcribeSegment(wavBytes, currentConfig, currentLanguage, new WhisperClient.TranscriptionCallback() {
                 @Override
                 public void onSuccess(String text) {
-                    deliverFinalResults(sessionId, text);
+                    deliverFinalResults(sessionId, utteranceId, text);
                 }
 
                 @Override
                 public void onError(String errorMessage) {
-                    deliverFinalResults(sessionId, "");
+                    deliverFinalResults(sessionId, utteranceId, "");
                 }
             });
         } else {
-            deliverFinalResults(sessionId, "");
+            deliverFinalResults(sessionId, utteranceId, "");
         }
     }
 
-    private void deliverFinalResults(int sessionId, String text) {
-        if (sessionId != sessionEpoch.get()) {
-            Log.d(TAG, "deliverFinalResults dropped for stale session " + sessionId);
+    private void deliverFinalResults(int sessionId, int utteranceId, String text) {
+        if (sessionId != sessionEpoch.get() || utteranceId != utteranceEpoch.get()) {
+            Log.d(TAG, "deliverFinalResults dropped for stale session/utterance " + sessionId + "/" + utteranceId);
             return;
         }
         final RecognitionListener listener = currentListener;
         if (listener != null) {
             mainHandler.post(() -> {
-                if (sessionId == sessionEpoch.get() && currentListener == listener) {
+                if (sessionId == sessionEpoch.get() && utteranceId == utteranceEpoch.get() && currentListener == listener) {
                     Bundle finalBundle = createResultsBundle(text != null ? text : "", true);
                     // onResults unconditionally terminates SwiftKey session (o0)
                     listener.onResults(finalBundle);
@@ -441,9 +458,100 @@ public class AudioRecorderManager {
         }
     }
 
+    public synchronized void stopSessionOnEditorCleared() {
+        if (!isRecording) {
+            return;
+        }
+        final int sessionId = sessionEpoch.get();
+        final int utteranceId = utteranceEpoch.incrementAndGet();
+        isRecording = false;
+        isSpeechActive.set(false);
+        Log.i(TAG, "stopSessionOnEditorCleared: host app sent message, stopping voice session [session " + sessionId + "]");
+
+        if (appContext != null) {
+            EarconPlayer.getInstance(appContext).playSuccess();
+        }
+
+        cancelAutoStop();
+        stopPartialScheduler();
+        WhisperClient.cancelAllRequests();
+
+        try {
+            effectsHelper.release();
+            if (audioRecord != null) {
+                audioRecord.stop();
+                audioRecord.release();
+                audioRecord = null;
+            }
+        } catch (Throwable ignored) {}
+
+        synchronized (pcmLock) {
+            currentSentencePcm = null;
+        }
+
+        if (vad != null) {
+            vad.reset();
+        }
+
+        if (currentConfig != null) {
+            currentConfig.clearContext();
+        }
+
+        deliverFinalResults(sessionId, utteranceId, "");
+    }
+
+    public synchronized void onEditorTextCleared() {
+        if (!isRecording) {
+            return;
+        }
+        final int utteranceId = utteranceEpoch.incrementAndGet();
+        Log.i(TAG, "onEditorTextCleared: host app sent/cleared text, invalidating in-flight utterance " + utteranceId);
+
+        // 1. Cancel in-flight HTTP requests and stop partial timer
+        WhisperClient.cancelAllRequests();
+        stopPartialScheduler();
+
+        // 2. Clear accumulated sentence audio
+        synchronized (pcmLock) {
+            if (currentSentencePcm != null) {
+                currentSentencePcm.reset();
+            }
+        }
+
+        // 3. Reset VAD engine state
+        if (vad != null) {
+            vad.reset();
+        }
+
+        // 4. Reset speech state & notify SwiftKey with empty partial to clear composing text buffer.
+        // DO NOT call onEndOfSpeech() here, because SwiftKey commits any cached composing text to the editor on end-of-speech.
+        isSpeechActive.set(false);
+        final RecognitionListener listener = currentListener;
+        if (listener != null) {
+            mainHandler.post(() -> {
+                if (isRecording && currentListener == listener) {
+                    Bundle emptyBundle = createResultsBundle("", false);
+                    listener.onPartialResults(emptyBundle);
+                }
+            });
+        }
+
+        // 5. Clear prompt context so discarded utterance doesn't leak into subsequent prompts
+        if (currentConfig != null) {
+            currentConfig.clearContext();
+        }
+
+        // 6. Re-arm auto-stop timer
+        int autoStopMs = currentConfig != null ? currentConfig.getAutoStopTimeoutMs() : ConfigManager.DEFAULT_AUTO_STOP_TIMEOUT_MS;
+        if (autoStopMs > 0) {
+            scheduleAutoStop(sessionEpoch.get(), autoStopMs);
+        }
+    }
+
     public synchronized void cancel() {
         boolean wasRecording = isRecording;
         sessionEpoch.incrementAndGet();
+        utteranceEpoch.incrementAndGet();
         isRecording = false;
         isSpeechActive.set(false);
 

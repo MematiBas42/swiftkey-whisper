@@ -94,6 +94,9 @@ public class SpeechRecognizerHook {
             // 4. Hook SwiftKey Lottie voice animation view to guarantee calm resting waveform
             hookLottieVoiceMicrophoneView(module, classLoader);
 
+            // 5. Hook KeyboardService.onUpdateSelection to detect host app text clearing (e.g. WhatsApp send)
+            hookKeyboardService(module, classLoader);
+
             module.log(Log.INFO, TAG, "SpeechRecognizer factory hooks initialized");
 
         } catch (Throwable t) {
@@ -481,6 +484,55 @@ public class SpeechRecognizerHook {
                 ReflectionHelper.callMethod(view, "f", 0, 0, 0);
                 module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Forced f(0, 0, 0) for " + className);
             }
+        }
+    }
+
+    private static void hookKeyboardService(XposedModule module, ClassLoader classLoader) {
+        try {
+            Class<?> keyboardServiceClass = Class.forName("com.touchtype.KeyboardService", true, classLoader);
+
+            for (Method method : keyboardServiceClass.getDeclaredMethods()) {
+                // 1. onUpdateSelection: framework notifies of selection/cursor resets
+                if ("onUpdateSelection".equals(method.getName()) && method.getParameterTypes().length == 6) {
+                    module.hook(method)
+                            .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                            .intercept(chain -> {
+                                int newSelStart = (int) chain.getArg(2);
+                                int newSelEnd = (int) chain.getArg(3);
+
+                                if (newSelStart == 0 && newSelEnd == 0 && AudioRecorderManager.getInstance().isRecording()) {
+                                    if (AudioRecorderManager.getInstance().hasPendingUtterance()) {
+                                        Log.i(TAG, "onUpdateSelection(0,0): host app cleared editor, stopping voice session.");
+                                        AudioRecorderManager.getInstance().stopSessionOnEditorCleared();
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                }
+
+                // 2. onStartInput: host app resets/restarts input when sending a message
+                if ("onStartInput".equals(method.getName()) && method.getParameterTypes().length == 2
+                        && method.getParameterTypes()[0] == android.view.inputmethod.EditorInfo.class
+                        && method.getParameterTypes()[1] == boolean.class) {
+                    module.hook(method)
+                            .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+                            .intercept(chain -> {
+                                boolean restarting = (boolean) chain.getArg(1);
+                                if (restarting && AudioRecorderManager.getInstance().isRecording()) {
+                                    if (AudioRecorderManager.getInstance().hasPendingUtterance()) {
+                                        Log.i(TAG, "onStartInput(restarting=true): host app sent message, stopping voice session.");
+                                        AudioRecorderManager.getInstance().stopSessionOnEditorCleared();
+                                    }
+                                }
+                                return chain.proceed();
+                            });
+                }
+            }
+            Log.i(TAG, "Hooked KeyboardService lifecycle successfully");
+        } catch (Throwable t) {
+            Log.e(TAG, "Failed to hook KeyboardService: " + t.getMessage());
         }
     }
 }
