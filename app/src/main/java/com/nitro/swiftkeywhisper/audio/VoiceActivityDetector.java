@@ -41,8 +41,8 @@ public class VoiceActivityDetector {
     private static final int FRAME_SAMPLES = 512;
     private static final int FRAME_BYTES = FRAME_SAMPLES * BYTES_PER_SAMPLE; // 1024 bytes
 
-    // Pre-roll buffer (250ms to preserve leading consonants before speech onset)
-    private static final int PRE_ROLL_MS = 250;
+    // Pre-roll buffer (500ms to preserve leading consonants & breath before speech onset)
+    private static final int PRE_ROLL_MS = 500;
     private static final int PRE_ROLL_BYTES = (SAMPLE_RATE * PRE_ROLL_MS / 1000) * BYTES_PER_SAMPLE;
     private final byte[] preRollRingBuffer = new byte[PRE_ROLL_BYTES];
     private int preRollWriteIndex = 0;

@@ -711,13 +711,18 @@ public class AudioRecorderManager {
                         break;
                     }
 
+                    boolean wasSpeaking = isSpeechActive.get();
+
                     // Send to VAD engine
                     if (vad != null) {
                         vad.processBuffer(buffer, 0, read);
                     }
 
-                    // If user is speaking, accumulate audio into current sentence
-                    if (isSpeechActive.get()) {
+                    // If user is speaking and was already speaking before this buffer was processed,
+                    // accumulate audio into current sentence. If speech onset just triggered during
+                    // vad.processBuffer, handleSpeechOnset already seeded currentSentencePcm with
+                    // this buffer via vad.getPreRollBytes(), avoiding duplicate audio/stuttering.
+                    if (isSpeechActive.get() && wasSpeaking) {
                         synchronized (pcmLock) {
                             if (currentSentencePcm != null) {
                                 currentSentencePcm.write(buffer, 0, read);
