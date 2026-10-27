@@ -17,3 +17,4 @@ lsposed-docs/
 .agents/
 .claude/
 skills-lock.json
+docs/NATIVE_STATE_MANAGEMENT_PLAN.md

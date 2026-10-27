@@ -16,7 +16,9 @@ import com.nitro.swiftkeywhisper.util.ReflectionHelper;
 
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -288,51 +290,17 @@ public class SpeechRecognizerHook {
 
     public static void resetLottieMicrophoneView(XposedModule module) {
         isSessionStarted = false;
-        mainHandler.post(() -> {
-            try {
-                Object view = lastLottieViewRef != null ? lastLottieViewRef.get() : null;
-                if (view != null) {
-                    ReflectionHelper.setBooleanField(view, "f7067s", false);
-
-                    float minFrame = 0f;
-                    float maxFrame = 0f;
-                    int repeatCount = 0;
-                    try {
-                        Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                        if (minObj instanceof Float) minFrame = (Float) minObj;
-                        Object maxObj = ReflectionHelper.callMethod(view, "getMaxFrame");
-                        if (maxObj instanceof Float) maxFrame = (Float) maxObj;
-                        Object repObj = ReflectionHelper.callMethod(view, "getRepeatCount");
-                        if (repObj instanceof Integer) repeatCount = (Integer) repObj;
-                    } catch (Throwable ignored) {}
-
-                    boolean isAnimating = false;
-                    try {
-                        Object drawable = ReflectionHelper.getObjectField(view, "f5631h");
-                        if (drawable != null) {
-                            Object animObj = ReflectionHelper.callMethod(drawable, "h");
-                            if (animObj instanceof Boolean) isAnimating = (Boolean) animObj;
-                        }
-                    } catch (Throwable ignored) {}
-
-                    if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
-                        try {
-                            ReflectionHelper.callMethod(view, "cancelAnimation");
-                            ReflectionHelper.callMethod(view, "setFrame", 0);
-                        } catch (Throwable t) {
-                            ReflectionHelper.callMethod(view, "f", 0, 0, 0);
-                        }
-                        if (module != null) {
-                            module.log(Log.INFO, TAG, "resetLottieMicrophoneView: forced idle on LottieView");
-                        }
+        Object view = lastLottieViewRef != null ? lastLottieViewRef.get() : null;
+        if (view != null) {
+            mainHandler.post(() -> {
+                try {
+                    ReflectionHelper.callMethod(view, "f", 0, 0, 0);
+                    if (module != null) {
+                        module.log(Log.INFO, TAG, "resetLottieMicrophoneView: forced idle via native f(0,0,0)");
                     }
-                }
-            } catch (Throwable t) {
-                if (module != null) {
-                    module.log(Log.WARN, TAG, "resetLottieMicrophoneView error: " + t.getMessage());
-                }
-            }
-        });
+                } catch (Throwable ignored) {}
+            });
+        }
     }
 
     private static void hookLottieVoiceMicrophoneView(XposedModule module, ClassLoader classLoader) {
@@ -379,14 +347,10 @@ public class SpeechRecognizerHook {
                                 Object view = chain.getThisObject();
                                 if (AudioRecorderManager.getInstance().isRecordingActive()) {
                                     boolean speaking = AudioRecorderManager.getInstance().isSpeaking();
-                                    if (speaking) {
-                                        ReflectionHelper.callMethod(view, "f", 152, 281, -1);
-                                    } else {
-                                        ReflectionHelper.callMethod(view, "f", 32, 151, -1);
-                                    }
-                                    return null; // Suppress SwiftKey's f(0,0,0) fallback!
+                                    ReflectionHelper.callMethod(view, "f", speaking ? 152 : 32, speaking ? 281 : 151, -1);
+                                    return null; // Suppress SwiftKey's fallback while recording is active
                                 }
-                                return chain.proceed();
+                                return chain.proceed(); // Recording inactive: let SwiftKey execute native q0 -> g() cooldown!
                             });
                     module.log(Log.INFO, TAG, "Hooked LottieVoiceMicrophoneView.onAnimationRepeat successfully!");
                 }
@@ -401,36 +365,46 @@ public class SpeechRecognizerHook {
         String className = b1Var.getClass().getName();
         String str = b1Var.toString();
 
-        try {
-            ReflectionHelper.setObjectField(view, "f7068t", b1Var);
-        } catch (Throwable ignored) {}
-
-        // VoiceTypingStarting (v50.b1 in 9.13+)
+        // 1. VoiceTypingStarting (v50.b1 in 9.13+)
         if (str.startsWith("VoiceTypingStarting") || className.endsWith(".b1")) {
             isSessionStarted = false;
-            return true;
+            return false; // Let SwiftKey handle starting natively
         }
 
-        // 1. VoiceTypingStarted (v50.a1 in 9.13+, u50.z0 in older): Triggered by onReadyForSpeech
+        // 2. VoiceTypingStarted (v50.a1 in 9.13+, u50.z0 in older): Triggered by onReadyForSpeech
         if (str.startsWith("VoiceTypingStarted") || className.endsWith(".a1") || (className.endsWith(".z0") && !str.contains("SegmentCompleted"))) {
-            boolean speaking = false;
+            boolean speaking = AudioRecorderManager.getInstance().isSpeaking();
+
             try {
-                Object speakObj = ReflectionHelper.callMethod(b1Var, "a");
-                if (speakObj instanceof Boolean) speaking = (Boolean) speakObj;
-                else speaking = ReflectionHelper.getBooleanField(b1Var, "f43346a");
-            } catch (Throwable ignored) {
+                ReflectionHelper.setObjectField(view, "u", b1Var);
+                ReflectionHelper.setObjectField(view, "f7068t", b1Var);
+            } catch (Throwable ignored) {}
+
+            // Reset SwiftKey's cooldown lock flag (f7421s in 9.13+, f7067s in older) so native g() cooldown can run on session end
+            boolean flagReset = false;
+            try {
+                ReflectionHelper.setBooleanField(view, "f7421s", false);
+                flagReset = true;
+            } catch (Throwable ignored) {}
+            if (!flagReset) {
                 try {
-                    speaking = ReflectionHelper.getBooleanField(b1Var, "f45381a");
-                } catch (Throwable ignored2) {}
+                    ReflectionHelper.setBooleanField(view, "f7067s", false);
+                    flagReset = true;
+                } catch (Throwable ignored) {}
+            }
+            if (!flagReset) {
+                try {
+                    for (Field f : view.getClass().getDeclaredFields()) {
+                        if (f.getType() == boolean.class && !Modifier.isFinal(f.getModifiers())) {
+                            f.setAccessible(true);
+                            f.setBoolean(view, false);
+                            break;
+                        }
+                    }
+                } catch (Throwable ignored) {}
             }
 
             if (!speaking) {
-                speaking = AudioRecorderManager.getInstance().isSpeaking();
-            }
-
-            if (!speaking) {
-                ReflectionHelper.setBooleanField(view, "f7067s", false);
-
                 // If mic is freshly opened from idle (!isSessionStarted), play opening animation 1 -> 151
                 // Once session is started, transition to calm quiet wave 32 -> 151 (never rewind to frame 1 static mic!)
                 if (!isSessionStarted) {
@@ -448,92 +422,34 @@ public class SpeechRecognizerHook {
             }
             return true;
         }
-        // 2. VoiceTypingPartialFragment / SegmentCompleted (v50.r0, v50.z0 in 9.13+, u50.p0, u50.k0 in older)
+
+        // 3. VoiceTypingPartialFragment / SegmentCompleted (v50.r0, v50.z0 in 9.13+, u50.p0, u50.k0 in older)
         else if (str.startsWith("VoiceTypingPartialFragment") || str.startsWith("VoiceTypingSegmentCompleted")
                 || className.endsWith(".r0") || className.endsWith(".z0") || className.endsWith(".p0") || className.endsWith(".k0") || className.endsWith(".y0")) {
-            boolean speaking = false;
+            boolean speaking = AudioRecorderManager.getInstance().isSpeaking();
+
             try {
-                Object speakObj = ReflectionHelper.callMethod(b1Var, "a");
-                if (speakObj instanceof Boolean) speaking = (Boolean) speakObj;
-                else speaking = ReflectionHelper.getBooleanField(b1Var, "f43346a");
-            } catch (Throwable ignored) {
-                try {
-                    speaking = ReflectionHelper.getBooleanField(b1Var, "f45381a");
-                } catch (Throwable ignored2) {}
-            }
+                ReflectionHelper.setObjectField(view, "u", b1Var);
+                ReflectionHelper.setObjectField(view, "f7068t", b1Var);
+            } catch (Throwable ignored) {}
 
-            if (!speaking) {
-                speaking = AudioRecorderManager.getInstance().isSpeaking();
-            }
-
-            if (!speaking) {
-                float minFrame = 0f;
-                float maxFrame = 0f;
-                int repeatCount = 0;
-                try {
-                    Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                    if (minObj instanceof Float) minFrame = (Float) minObj;
-                    Object maxObj = ReflectionHelper.callMethod(view, "getMaxFrame");
-                    if (maxObj instanceof Float) maxFrame = (Float) maxObj;
-                    Object repObj = ReflectionHelper.callMethod(view, "getRepeatCount");
-                    if (repObj instanceof Integer) repeatCount = (Integer) repObj;
-                } catch (Throwable ignored) {}
-
-                if (minFrame != 32.0f || maxFrame < 150.0f || repeatCount != -1) {
-                    ReflectionHelper.callMethod(view, "f", 32, 151, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed calm quiet wave f(32, 151, -1) for " + className + " (speaking=false)");
-                }
-            } else {
-                float minFrame = 0f;
-                try {
-                    Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                    if (minObj instanceof Float) minFrame = (Float) minObj;
-                } catch (Throwable ignored) {}
-
-                if (minFrame < 152.0f) {
-                    ReflectionHelper.callMethod(view, "f", 152, 281, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed active talk wave f(152, 281, -1) for " + className + " (speaking=true)");
-                }
-            }
+            ReflectionHelper.callMethod(view, "f", speaking ? 152 : 32, speaking ? 281 : 151, -1);
             return true;
         }
-        // 3. VoiceTypingOver (v50.q0 in 9.13+, u50.o0 in older), VoiceTypingError (v50.o0 in 9.13+, u50.m0 in older), VoiceTypingIdle (v50.f1, u50.e1)
+
+        // 4. VoiceTypingOver (v50.q0 in 9.13+, u50.o0 in older), VoiceTypingError (v50.o0 in 9.13+), VoiceTypingIdle (v50.f1, u50.e1)
         else if (str.startsWith("VoiceTypingOver") || str.startsWith("VoiceTypingError") || str.startsWith("VoiceTypingIdle")
-                || className.endsWith(".q0") || className.endsWith(".o0") || className.endsWith(".m0") || className.endsWith(".e1") || className.endsWith(".f1")) {
+                || className.endsWith(".q0") || className.endsWith(".o0") || className.endsWith(".e1") || className.endsWith(".f1")) {
             isSessionStarted = false;
-            ReflectionHelper.setBooleanField(view, "f7067s", false);
 
-            float minFrame = 0f;
-            float maxFrame = 0f;
-            int repeatCount = 0;
-            try {
-                Object minObj = ReflectionHelper.callMethod(view, "getMinFrame");
-                if (minObj instanceof Float) minFrame = (Float) minObj;
-                Object maxObj = ReflectionHelper.callMethod(view, "getMaxFrame");
-                if (maxObj instanceof Float) maxFrame = (Float) maxObj;
-                Object repObj = ReflectionHelper.callMethod(view, "getRepeatCount");
-                if (repObj instanceof Integer) repeatCount = (Integer) repObj;
-            } catch (Throwable ignored) {}
-
-            boolean isAnimating = false;
-            try {
-                Object drawable = ReflectionHelper.getObjectField(view, "f5631h");
-                if (drawable != null) {
-                    Object animObj = ReflectionHelper.callMethod(drawable, "h");
-                    if (animObj instanceof Boolean) isAnimating = (Boolean) animObj;
-                }
-            } catch (Throwable ignored) {}
-
-            if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
-                try {
-                    ReflectionHelper.callMethod(view, "cancelAnimation");
-                    ReflectionHelper.callMethod(view, "setFrame", 0);
-                } catch (Throwable t) {
-                    ReflectionHelper.callMethod(view, "f", 0, 0, 0);
-                }
-                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Reset to idle for " + className);
+            if (AudioRecorderManager.getInstance().isRecordingActive()) {
+                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: stopping active recording on " + className);
+                AudioRecorderManager.getInstance().cancel();
             }
-            return true;
+
+            // DO NOT CONSUME! Allow SwiftKey's native setState(q0/f1/o0) to run (chain.proceed).
+            // SwiftKey sets this.u = c1Var and handles the cooldown to static mic.
+            return false;
         }
         return false;
     }
