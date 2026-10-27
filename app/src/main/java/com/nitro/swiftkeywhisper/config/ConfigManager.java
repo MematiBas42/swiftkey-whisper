@@ -24,6 +24,7 @@ public class ConfigManager {
     public static final String KEY_SOUND_EFFECTS_ENABLED = "sound_effects_enabled";
     public static final String KEY_EARCON_VOLUME = "earcon_volume";
     public static final String KEY_AUTO_STOP_TIMEOUT_MS = "auto_stop_timeout_ms";
+    public static final String KEY_AUDIO_DUCKING_ENABLED = "audio_ducking_enabled";
 
     public static final String DEFAULT_ENDPOINT = "https://api.groq.com/openai/v1/audio/transcriptions";
     public static final String DEFAULT_MODEL = "whisper-large-v3";
@@ -34,6 +35,7 @@ public class ConfigManager {
     public static final boolean DEFAULT_SOUND_EFFECTS_ENABLED = true;
     public static final int DEFAULT_EARCON_VOLUME = 100; // 0-100%
     public static final int DEFAULT_AUTO_STOP_TIMEOUT_MS = 1500; // 1.5s silence auto-terminates session to static mic
+    public static final boolean DEFAULT_AUDIO_DUCKING_ENABLED = true;
 
     public static String getDefaultSystemLanguage() {
         try {
@@ -70,6 +72,7 @@ public class ConfigManager {
     private boolean soundEffectsEnabled = DEFAULT_SOUND_EFFECTS_ENABLED;
     private int earconVolume = DEFAULT_EARCON_VOLUME;
     private int autoStopTimeoutMs = DEFAULT_AUTO_STOP_TIMEOUT_MS;
+    private boolean audioDuckingEnabled = DEFAULT_AUDIO_DUCKING_ENABLED;
 
     // Rolling context history for Whisper prompt chaining (~150 words)
     private final LinkedList<String> recentWords = new LinkedList<>();
@@ -127,6 +130,7 @@ public class ConfigManager {
             this.soundEffectsEnabled = prefs.getBoolean(KEY_SOUND_EFFECTS_ENABLED, DEFAULT_SOUND_EFFECTS_ENABLED);
             this.earconVolume = prefs.getInt(KEY_EARCON_VOLUME, DEFAULT_EARCON_VOLUME);
             this.autoStopTimeoutMs = prefs.getInt(KEY_AUTO_STOP_TIMEOUT_MS, DEFAULT_AUTO_STOP_TIMEOUT_MS);
+            this.audioDuckingEnabled = prefs.getBoolean(KEY_AUDIO_DUCKING_ENABLED, DEFAULT_AUDIO_DUCKING_ENABLED);
         } catch (Throwable t) {
             Log.w(TAG, "Failed reading preferences: " + t.getMessage());
         }
@@ -156,6 +160,7 @@ public class ConfigManager {
                 .putBoolean(KEY_SOUND_EFFECTS_ENABLED, soundEffectsEnabled)
                 .putInt(KEY_EARCON_VOLUME, earconVolume)
                 .putInt(KEY_AUTO_STOP_TIMEOUT_MS, autoStopTimeoutMs)
+                .putBoolean(KEY_AUDIO_DUCKING_ENABLED, audioDuckingEnabled)
                 .apply();
     }
 
@@ -250,4 +255,7 @@ public class ConfigManager {
 
     public int getAutoStopTimeoutMs() { return autoStopTimeoutMs; }
     public void setAutoStopTimeoutMs(int autoStopTimeoutMs) { this.autoStopTimeoutMs = autoStopTimeoutMs; }
+
+    public boolean isAudioDuckingEnabled() { return audioDuckingEnabled; }
+    public void setAudioDuckingEnabled(boolean audioDuckingEnabled) { this.audioDuckingEnabled = audioDuckingEnabled; }
 }

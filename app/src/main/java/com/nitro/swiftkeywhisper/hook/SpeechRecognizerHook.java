@@ -316,9 +316,14 @@ public class SpeechRecognizerHook {
                     } catch (Throwable ignored) {}
 
                     if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
-                        ReflectionHelper.callMethod(view, "f", 0, 0, 0);
+                        try {
+                            ReflectionHelper.callMethod(view, "cancelAnimation");
+                            ReflectionHelper.callMethod(view, "setFrame", 0);
+                        } catch (Throwable t) {
+                            ReflectionHelper.callMethod(view, "f", 0, 0, 0);
+                        }
                         if (module != null) {
-                            module.log(Log.INFO, TAG, "resetLottieMicrophoneView: forced f(0, 0, 0) on LottieView");
+                            module.log(Log.INFO, TAG, "resetLottieMicrophoneView: forced idle on LottieView");
                         }
                     }
                 }
@@ -394,19 +399,34 @@ public class SpeechRecognizerHook {
     private static boolean handleLottieState(XposedModule module, Object view, Object b1Var) {
         lastLottieViewRef = new WeakReference<>(view);
         String className = b1Var.getClass().getName();
+        String str = b1Var.toString();
 
         try {
             ReflectionHelper.setObjectField(view, "f7068t", b1Var);
         } catch (Throwable ignored) {}
 
-        // 1. VoiceTypingStarted (u50.z0): Triggered by onReadyForSpeech
-        if (className.endsWith(".z0")) {
+        // VoiceTypingStarting (v50.b1 in 9.13+)
+        if (str.startsWith("VoiceTypingStarting") || className.endsWith(".b1")) {
+            isSessionStarted = false;
+            return true;
+        }
+
+        // 1. VoiceTypingStarted (v50.a1 in 9.13+, u50.z0 in older): Triggered by onReadyForSpeech
+        if (str.startsWith("VoiceTypingStarted") || className.endsWith(".a1") || (className.endsWith(".z0") && !str.contains("SegmentCompleted"))) {
             boolean speaking = false;
             try {
                 Object speakObj = ReflectionHelper.callMethod(b1Var, "a");
                 if (speakObj instanceof Boolean) speaking = (Boolean) speakObj;
                 else speaking = ReflectionHelper.getBooleanField(b1Var, "f43346a");
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {
+                try {
+                    speaking = ReflectionHelper.getBooleanField(b1Var, "f45381a");
+                } catch (Throwable ignored2) {}
+            }
+
+            if (!speaking) {
+                speaking = AudioRecorderManager.getInstance().isSpeaking();
+            }
 
             if (!speaking) {
                 ReflectionHelper.setBooleanField(view, "f7067s", false);
@@ -416,25 +436,35 @@ public class SpeechRecognizerHook {
                 if (!isSessionStarted) {
                     isSessionStarted = true;
                     ReflectionHelper.callMethod(view, "f", 1, 151, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Fresh open f(1, 151, -1) for z0");
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Fresh open f(1, 151, -1) for " + className);
                 } else {
                     ReflectionHelper.callMethod(view, "f", 32, 151, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Switched to calm quiet wave f(32, 151, -1) for z0 (speaking=false)");
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Switched to calm quiet wave f(32, 151, -1) for " + className + " (speaking=false)");
                 }
             } else {
                 isSessionStarted = true;
                 ReflectionHelper.callMethod(view, "f", 152, 281, -1);
-                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started active talk wave f(152, 281, -1) for z0 (speaking=true)");
+                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Started active talk wave f(152, 281, -1) for " + className + " (speaking=true)");
             }
             return true;
         }
-        // 2. VoiceTypingFragment / Completed (u50.p0, u50.y0 or any other u50.k0 state)
-        else if (className.endsWith(".p0") || className.endsWith(".k0") || className.endsWith(".y0")) {
+        // 2. VoiceTypingPartialFragment / SegmentCompleted (v50.r0, v50.z0 in 9.13+, u50.p0, u50.k0 in older)
+        else if (str.startsWith("VoiceTypingPartialFragment") || str.startsWith("VoiceTypingSegmentCompleted")
+                || className.endsWith(".r0") || className.endsWith(".z0") || className.endsWith(".p0") || className.endsWith(".k0") || className.endsWith(".y0")) {
             boolean speaking = false;
             try {
                 Object speakObj = ReflectionHelper.callMethod(b1Var, "a");
                 if (speakObj instanceof Boolean) speaking = (Boolean) speakObj;
-            } catch (Throwable ignored) {}
+                else speaking = ReflectionHelper.getBooleanField(b1Var, "f43346a");
+            } catch (Throwable ignored) {
+                try {
+                    speaking = ReflectionHelper.getBooleanField(b1Var, "f45381a");
+                } catch (Throwable ignored2) {}
+            }
+
+            if (!speaking) {
+                speaking = AudioRecorderManager.getInstance().isSpeaking();
+            }
 
             if (!speaking) {
                 float minFrame = 0f;
@@ -451,7 +481,7 @@ public class SpeechRecognizerHook {
 
                 if (minFrame != 32.0f || maxFrame < 150.0f || repeatCount != -1) {
                     ReflectionHelper.callMethod(view, "f", 32, 151, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed calm quiet wave f(32, 151, -1) for p0/k0 (speaking=false)");
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed calm quiet wave f(32, 151, -1) for " + className + " (speaking=false)");
                 }
             } else {
                 float minFrame = 0f;
@@ -462,13 +492,15 @@ public class SpeechRecognizerHook {
 
                 if (minFrame < 152.0f) {
                     ReflectionHelper.callMethod(view, "f", 152, 281, -1);
-                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed active talk wave f(152, 281, -1) for p0/k0 (speaking=true)");
+                    module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Resumed active talk wave f(152, 281, -1) for " + className + " (speaking=true)");
                 }
             }
             return true;
         }
-        // 3. VoiceTypingOver (u50.o0), VoiceTypingError (u50.m0), VoiceTypingIdle (u50.e1)
-        else if (className.endsWith(".o0") || className.endsWith(".m0") || className.endsWith(".e1")) {
+        // 3. VoiceTypingOver (v50.q0 in 9.13+, u50.o0 in older), VoiceTypingError (v50.o0 in 9.13+, u50.m0 in older), VoiceTypingIdle (v50.f1, u50.e1)
+        else if (str.startsWith("VoiceTypingOver") || str.startsWith("VoiceTypingError") || str.startsWith("VoiceTypingIdle")
+                || className.endsWith(".q0") || className.endsWith(".o0") || className.endsWith(".m0") || className.endsWith(".e1") || className.endsWith(".f1")) {
+            isSessionStarted = false;
             ReflectionHelper.setBooleanField(view, "f7067s", false);
 
             float minFrame = 0f;
@@ -493,8 +525,13 @@ public class SpeechRecognizerHook {
             } catch (Throwable ignored) {}
 
             if (minFrame != 0.0f || maxFrame != 0.0f || repeatCount != 0 || isAnimating) {
-                ReflectionHelper.callMethod(view, "f", 0, 0, 0);
-                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Forced f(0, 0, 0) for " + className);
+                try {
+                    ReflectionHelper.callMethod(view, "cancelAnimation");
+                    ReflectionHelper.callMethod(view, "setFrame", 0);
+                } catch (Throwable t) {
+                    ReflectionHelper.callMethod(view, "f", 0, 0, 0);
+                }
+                module.log(Log.INFO, TAG, "LottieVoiceMicrophoneView: Reset to idle for " + className);
             }
             return true;
         }

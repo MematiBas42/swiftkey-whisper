@@ -1,9 +1,13 @@
 package com.nitro.swiftkeywhisper.audio;
 
 import android.content.Context;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -71,6 +75,74 @@ public class AudioRecorderManager {
     private VoiceActivityDetector vad;
     private Context appContext;
     private final AudioEffectsHelper effectsHelper = new AudioEffectsHelper();
+
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
+    private final AudioManager.OnAudioFocusChangeListener focusChangeListener = focusChange -> {
+        Log.d(TAG, "onAudioFocusChange: " + focusChange);
+    };
+
+    private synchronized void requestMediaAudioFocus() {
+        if (currentConfig != null && !currentConfig.isAudioDuckingEnabled()) {
+            return;
+        }
+        if (appContext == null) {
+            return;
+        }
+        try {
+            if (audioManager == null) {
+                audioManager = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+            }
+            if (audioManager == null) {
+                return;
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                AudioAttributes playbackAttributes = new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build();
+
+                audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                        .setAudioAttributes(playbackAttributes)
+                        .setAcceptsDelayedFocusGain(false)
+                        .setOnAudioFocusChangeListener(focusChangeListener)
+                        .build();
+
+                int res = audioManager.requestAudioFocus(audioFocusRequest);
+                Log.i(TAG, "Audio focus requested (AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, API 26+): result=" + res);
+            } else {
+                int res = audioManager.requestAudioFocus(
+                        focusChangeListener,
+                        AudioManager.STREAM_MUSIC,
+                        AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
+                );
+                Log.i(TAG, "Audio focus requested (AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK, Legacy): result=" + res);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to request audio focus: " + t.getMessage());
+        }
+    }
+
+    private synchronized void abandonMediaAudioFocus() {
+        if (audioManager == null) {
+            return;
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (audioFocusRequest != null) {
+                    int res = audioManager.abandonAudioFocusRequest(audioFocusRequest);
+                    audioFocusRequest = null;
+                    Log.i(TAG, "Audio focus abandoned (API 26+): result=" + res);
+                }
+            } else {
+                int res = audioManager.abandonAudioFocus(focusChangeListener);
+                Log.i(TAG, "Audio focus abandoned (Legacy): result=" + res);
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Failed to abandon audio focus: " + t.getMessage());
+        }
+    }
 
     public static synchronized AudioRecorderManager getInstance() {
         if (instance == null) {
@@ -167,6 +239,8 @@ public class AudioRecorderManager {
             audioRecord.startRecording();
             isRecording = true;
             isSpeechActive.set(false);
+
+            requestMediaAudioFocus();
 
             Log.i(TAG, "Audio recording pipeline started (VOICE_RECOGNITION, 16kHz Mono) [session " + sessionId + "]");
 
@@ -544,6 +618,8 @@ public class AudioRecorderManager {
             Log.w(TAG, "Error stopping AudioRecord: " + t.getMessage());
         }
 
+        abandonMediaAudioFocus();
+
         if (vad != null) {
             vad.close();
             vad = null;
@@ -618,6 +694,8 @@ public class AudioRecorderManager {
             }
         } catch (Throwable ignored) {}
 
+        abandonMediaAudioFocus();
+
         synchronized (pcmLock) {
             currentSentencePcm = null;
         }
@@ -664,6 +742,8 @@ public class AudioRecorderManager {
                 audioRecord = null;
             }
         } catch (Throwable ignored) {}
+
+        abandonMediaAudioFocus();
 
         if (vad != null) {
             vad.close();
